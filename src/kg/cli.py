@@ -215,7 +215,7 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
 
 @cli.command()
 @click.argument("query", required=False)
-@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
+@click.option("--query-file", "-Q", "-q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
 @click.option("--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)")
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
@@ -272,7 +272,7 @@ def search(query: str | None, query_file: str | None, session: str | None, limit
 @click.option("--session", "-s", default=None, help="Session ID for differential context")
 @click.option("--max-tokens", default=1000, show_default=True)
 @click.option("--limit", "-n", default=20, show_default=True)
-@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True))
+@click.option("--query-file", "-Q", "-q", default=None, type=click.Path(exists=True))
 def context(
     query: str | None,
     compact: bool,  # noqa: ARG001  (reserved for future non-compact mode)

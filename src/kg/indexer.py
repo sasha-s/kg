@@ -10,6 +10,7 @@ Entry points:
 
 from __future__ import annotations
 
+import contextlib
 import re
 import sqlite3
 from typing import TYPE_CHECKING
@@ -32,7 +33,33 @@ def _get_conn(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _migrate_fts_if_needed(conn: sqlite3.Connection) -> None:
+    """Drop bullets_fts if it was created with content=bullets (broken schema).
+
+    FTS5 UNINDEXED columns in a content= table are read back from the content table by
+    column name at query time.  Our FTS column is named 'bullet_id' but the content table
+    (bullets) uses 'id', causing OperationalError: no such column: T.bullet_id.
+    Fix: switch to a self-contained FTS5 table (no content=) so FTS stores its own copy.
+    The table will be recreated by _ensure_schema and repopulated by the next kg rebuild.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='bullets_fts'"
+    ).fetchone()
+    if row and "content=bullets" in row[0]:
+        # Drop old FTS table and its triggers, then recreate below
+        conn.executescript("""
+            DROP TRIGGER IF EXISTS bullets_ai;
+            DROP TRIGGER IF EXISTS bullets_ad;
+            DROP TRIGGER IF EXISTS bullets_au;
+            DROP TABLE IF EXISTS bullets_fts;
+        """)
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
+    # Migrate legacy FTS table before running CREATE IF NOT EXISTS
+    with contextlib.suppress(sqlite3.OperationalError):  # bullets_fts_config may not exist yet
+        _migrate_fts_if_needed(conn)
+
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS nodes (
             slug TEXT PRIMARY KEY,
@@ -56,12 +83,13 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             used INTEGER DEFAULT 0
         );
 
+        -- Self-contained FTS5 table (no content= link): stores its own copy of text,
+        -- node_slug, bullet_id so UNINDEXED retrieval doesn't depend on content table
+        -- column names matching.
         CREATE VIRTUAL TABLE IF NOT EXISTS bullets_fts USING fts5(
             text,
             node_slug UNINDEXED,
-            bullet_id UNINDEXED,
-            content=bullets,
-            content_rowid=rowid
+            bullet_id UNINDEXED
         );
 
         CREATE TABLE IF NOT EXISTS backlinks (
@@ -164,6 +192,7 @@ def search_fts(query: str, db_path: Path, limit: int = 20) -> list[dict]:
     if not db_path.exists():
         return []
     conn = _get_conn(db_path)
+    _ensure_schema(conn)  # migrate FTS schema if needed (idempotent)
     rows = conn.execute(
         """SELECT node_slug, bullet_id, text, rank
            FROM bullets_fts
