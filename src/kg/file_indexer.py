@@ -155,7 +155,7 @@ def _git_files(source_path: Path) -> list[Path] | None:
     """Return git-tracked files in source_path. Returns None if not a git repo."""
     try:
         result = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            ["git", "ls-files", "--cached"],
             cwd=source_path,
             capture_output=True,
             text=True,
