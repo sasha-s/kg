@@ -14,3 +14,7 @@
 {"id": "b-e1243c9f", "deleted": true}
 {"id": "b-5f0253d7", "type": "note", "text": "test bullet UPDATED", "created_at": "2026-02-20T08:06:03.794622+00:00", "updated_at": "2026-02-20T08:06:08.232783+00:00"}
 {"id": "b-5f0253d7", "deleted": true}
+{"id": "b-4c65674e", "type": "gotcha", "text": "claude --resume <id> looks in ~/.claude/projects/<encoded-cwd>/ \u2014 cwd must match the session's original project dir, not the hook's cwd", "created_at": "2026-02-20T08:30:42.378194+00:00"}
+{"id": "b-122de9b0", "type": "fact", "text": "glob('*/<session_id>.jsonl') under ~/.claude/projects/ finds the correct project dir without decoding ambiguity", "created_at": "2026-02-20T08:30:46.634902+00:00"}
+{"id": "b-bd2dd4eb", "type": "fact", "text": "encoded project path uses lstrip and replace slashes with dashes; decode is lossy for paths with dashes in dir names but is_dir() check filters false positives", "created_at": "2026-02-20T08:30:57.625995+00:00"}
+{"id": "b-bb08fe31", "type": "fact", "text": "kg start creates <project>/.claude -> .kg symlink so Claude Code finds local settings inside the project dir [how-to-use-kg]", "created_at": "2026-02-20T08:31:01.353105+00:00"}
