@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 # ─── Text rendering ───────────────────────────────────────────────────────────
 
-_SLUG_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
+_SLUG_RE = re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`(.+?)`")
 _URL_RE = re.compile(r"https?://\S+")
@@ -57,6 +57,30 @@ def _render(text: str, slugs: set[str]) -> str:
     return "".join(parts)
 
 
+# ─── File language detection ──────────────────────────────────────────────────
+
+_EXT_LANG: dict[str, str] = {
+    "py": "python", "js": "javascript", "ts": "typescript",
+    "jsx": "javascript", "tsx": "typescript", "rs": "rust",
+    "go": "go", "java": "java", "c": "c", "cpp": "cpp",
+    "h": "c", "hpp": "cpp", "sh": "bash",
+    "sql": "sql", "toml": "toml", "yaml": "yaml", "yml": "yaml",
+    "json": "json", "html": "xml", "css": "css",
+    "md": "markdown", "rst": "plaintext", "txt": "plaintext",
+    "dockerfile": "dockerfile", "makefile": "makefile",
+}
+_MD_EXTS = {"md"}
+
+
+def _file_lang(path: str) -> tuple[str, bool]:
+    """Return (highlight.js language id, is_markdown) for a file path."""
+    name = path.rsplit("/", 1)[-1].lower()
+    if name in ("dockerfile", "makefile"):
+        return name, False
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    return _EXT_LANG.get(ext, "plaintext"), ext in _MD_EXTS
+
+
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 
 _CSS = """
@@ -83,6 +107,7 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 .bt-decision{background:#312e81;color:#a78bfa}
 .bt-agent{background:#064e3b;color:#34d399}
 .bt-session{background:#451a03;color:#fb923c}
+.bt-doc{background:#1c1c3a;color:#a5b4fc}
 .node-list{display:flex;flex-direction:column;gap:3px}
 .node-row{display:flex;gap:10px;align-items:baseline;padding:6px 10px;border-radius:6px;border:1px solid transparent}
 .node-row:hover{background:var(--sf);border-color:var(--bd)}
@@ -107,57 +132,300 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 .sg{margin-bottom:24px}
 .sg h3{font-size:15px;margin-bottom:8px}
 .sg h3 a{color:var(--tx);font-weight:600}
+/* chunks */
+.hidden{display:none!important}
+.chunks-toggle{font-size:13px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;color:var(--mt);padding:3px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--sf)}
+.chunks-toggle:hover{border-color:var(--ac);color:var(--tx)}
+.chunks-toggle input{cursor:pointer;accent-color:var(--ac)}
+.chunks-section{display:flex;flex-direction:column;gap:0;margin-top:20px;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+.chunk{border-bottom:1px solid var(--bd)}
+.chunk:last-child{border-bottom:none}
+.chunk-hdr{display:flex;align-items:center;justify-content:space-between;padding:4px 12px;background:rgba(255,255,255,.03);font-size:11px;color:var(--mt);font-family:monospace}
+.chunk pre{margin:0;overflow-x:auto}
+.chunk pre code.hljs{padding:14px 16px;background:transparent!important;font-size:12px;line-height:1.5}
+/* markdown body */
+.md-body{padding:16px;font-size:14px;line-height:1.7}
+.md-body h1,.md-body h2,.md-body h3,.md-body h4{margin:1.2em 0 .4em;color:var(--tx);line-height:1.3}
+.md-body h1{font-size:1.4em;border-bottom:1px solid var(--bd);padding-bottom:.3em}
+.md-body h2{font-size:1.15em;border-bottom:1px solid var(--bd);padding-bottom:.2em}
+.md-body h3{font-size:1em}
+.md-body p{margin:0 0 .8em}
+.md-body code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px}
+.md-body pre{background:#161b22;border:1px solid var(--bd);border-radius:6px;overflow-x:auto;margin:0 0 .8em}
+.md-body pre code{background:none;padding:12px 14px;display:block;font-size:12px;line-height:1.5}
+.md-body ul,.md-body ol{padding-left:1.6em;margin:0 0 .8em}
+.md-body li{margin-bottom:.2em}
+.md-body blockquote{border-left:3px solid var(--bd);margin:0 0 .8em 0;padding:.2em 0 .2em 1em;color:var(--mt)}
+.md-body a{color:var(--lk)}
+.md-body table{border-collapse:collapse;width:100%;margin:0 0 .8em;font-size:13px}
+.md-body th,.md-body td{border:1px solid var(--bd);padding:6px 10px;text-align:left}
+.md-body th{background:var(--sf)}
+.md-body hr{border:none;border-top:1px solid var(--bd);margin:.8em 0}
+/* docs toggle button */
+.docs-toggle-btn{font-size:12px;cursor:pointer;color:var(--mt);background:none;border:1px solid var(--bd);border-radius:6px;padding:3px 10px;line-height:1.4}
+.docs-toggle-btn:hover{border-color:var(--ac);color:var(--tx)}
 """
 
 _NODE_TYPES = {"concept", "task", "decision", "agent", "session"}
 _BULLET_COLORS = {"gotcha", "decision", "task", "note", "success", "failure"}
 
+# CDN resources for doc pages
+_HLJS_CSS = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css">'
+_HLJS_JS = '<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>'
+_MARKED_JS = '<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>'
+
 
 def _badge(node_type: str) -> str:
-    cls = f"bt-{node_type}" if node_type in _NODE_TYPES else "bt-other"
+    cls = f"bt-{node_type}" if node_type in _NODE_TYPES | {"doc"} else "bt-other"
     return f'<span class="badge {cls}">{_html.escape(node_type)}</span>'
 
 
-def _page(cfg: KGConfig, title: str, body: str, q: str = "") -> str:
+def _page(cfg: KGConfig, title: str, body: str, q: str = "", extra_head: str = "", extra_script: str = "") -> str:
     qesc = _html.escape(q)
     name = _html.escape(cfg.name)
     t = _html.escape(title)
+    script_tag = f"<script>{extra_script}</script>" if extra_script else ""
     return (
         f'<!DOCTYPE html>\n<html lang="en">\n<head>'
         f'<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         f'<title>{t} — {name}</title>'
-        f'<style>{_CSS}</style></head>\n<body>'
+        f'<style>{_CSS}</style>'
+        f'{extra_head}'
+        f'</head>\n<body>'
         f'<nav><a class="brand" href="/">{name}</a>'
         f'<form action="/search" method="get">'
         f'<input name="q" type="search" placeholder="Search nodes…" value="{qesc}" autocomplete="off">'
         f'<button type="submit">Search</button></form></nav>'
-        f'<main>{body}</main></body></html>'
+        f'<main>{body}</main>'
+        f'{script_tag}'
+        f'</body></html>'
     )
 
 
 # ─── Page renderers ───────────────────────────────────────────────────────────
 
-def _render_index(cfg: KGConfig, nodes: list[FileNode]) -> str:
-    public = sorted(
-        (n for n in nodes if not n.slug.startswith("_")),
-        key=lambda n: n.title.lower(),
-    )
-    rows = []
-    for n in public:
-        bc = len(n.live_bullets)
-        s = "" if bc == 1 else "s"
-        rows.append(
+def _get_slugs_db(cfg: KGConfig) -> set[str]:
+    """Return all node slugs from SQLite — O(1) DB read vs O(N) filesystem syscalls."""
+    import contextlib
+    with contextlib.suppress(Exception):
+        from kg.db import get_conn
+        conn = get_conn(cfg)
+        rows = conn.execute("SELECT slug FROM nodes").fetchall()
+        conn.close()
+        return {r[0] for r in rows}
+    from kg.reader import FileStore
+    return set(FileStore(cfg.nodes_dir).list_slugs())
+
+
+def _render_index(cfg: KGConfig) -> str:
+    """Render the index page using SQLite — avoids reading every node.jsonl."""
+    import contextlib
+    all_rows: list[tuple[str, str, str, int]] = []
+    with contextlib.suppress(Exception):
+        from kg.db import get_conn
+        conn = get_conn(cfg)
+        all_rows = conn.execute(
+            "SELECT slug, title, type, bullet_count FROM nodes ORDER BY title COLLATE NOCASE"
+        ).fetchall()
+        conn.close()
+
+    public = [
+        (s, t or s, nt or "concept", bc)
+        for s, t, nt, bc in all_rows
+        if not s.startswith("_")
+    ]
+    docs = [
+        (s, t or s, bc)
+        for s, t, nt, bc in all_rows
+        if s.startswith("_doc-")
+    ]
+
+    html_rows = []
+    for slug, title, node_type, bc in public:
+        suffix = "" if bc == 1 else "s"
+        html_rows.append(
             f'<div class="node-row">'
-            f'<span class="t"><a href="/node/{n.slug}">{_html.escape(n.title)}</a></span>'
-            f'<span class="m">{_badge(n.type)}&nbsp;&nbsp;{bc} bullet{s}</span>'
+            f'<span class="t"><a href="/node/{_html.escape(slug)}">{_html.escape(title)}</a></span>'
+            f'<span class="m">{_badge(node_type)}&nbsp;&nbsp;{bc} bullet{suffix}</span>'
             f'</div>'
         )
+
+    doc_rows_html = []
+    for slug, title, bc in docs:
+        suffix = "" if bc == 1 else "s"
+        doc_rows_html.append(
+            f'<div class="node-row">'
+            f'<span class="t"><a href="/node/{_html.escape(slug)}">'
+            f'<code style="font-size:12px">{_html.escape(title)}</code></a></span>'
+            f'<span class="m">{bc} chunk{suffix}</span>'
+            f'</div>'
+        )
+
+    docs_section = ""
+    docs_btn = ""
+    if docs:
+        docs_section = (
+            f'<div id="docs-section" class="hidden" style="margin-top:24px">'
+            f'<h2>Source files ({len(docs)})</h2>'
+            f'<div class="node-list">{"".join(doc_rows_html)}</div>'
+            f'</div>'
+        )
+        docs_btn = (
+            f'<button class="docs-toggle-btn" id="docs-btn" onclick="toggleDocs()">'
+            f'Show {len(docs)} source files'
+            f'</button>'
+        )
+
     body = (
+        f'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
         f'<h1>{_html.escape(cfg.name)}</h1>'
+        f'{docs_btn}'
+        f'</div>'
         f'<p class="meta">{len(public)} nodes</p>'
-        f'<div class="node-list">{"".join(rows)}</div>'
+        f'<div class="node-list">{"".join(html_rows)}</div>'
+        + docs_section
     )
-    return _page(cfg, cfg.name, body)
+
+    js = """
+(function(){
+  var K='kg-docs',sec=document.getElementById('docs-section'),btn=document.getElementById('docs-btn');
+  function setDocs(on){
+    if(!sec)return;
+    if(on){sec.classList.remove('hidden');if(btn)btn.textContent='Hide source files';}
+    else{sec.classList.add('hidden');if(btn)btn.textContent=btn.textContent.replace('Hide','Show');}
+  }
+  if(localStorage.getItem(K)==='1')setDocs(true);
+  window.toggleDocs=function(){
+    var on=sec&&sec.classList.contains('hidden');
+    setDocs(on);
+    if(on)localStorage.setItem(K,'1');else localStorage.removeItem(K);
+  };
+})();
+"""
+    return _page(cfg, cfg.name, body, extra_script=js)
+
+
+# ─── Doc node (source file) renderer ─────────────────────────────────────────
+
+def _get_doc_node(cfg: KGConfig, slug: str) -> dict | None:
+    """Fetch a _doc-* source file node from SQLite. Returns None if not found."""
+    import contextlib
+    with contextlib.suppress(Exception):
+        from kg.db import get_conn
+        conn = get_conn(cfg)
+        row = conn.execute(
+            "SELECT title, bullet_count, created_at FROM nodes WHERE slug = ? AND type = 'doc'",
+            (slug,),
+        ).fetchone()
+        if row is None:
+            conn.close()
+            return None
+        title, bullet_count, created_at = row
+        chunks = conn.execute(
+            "SELECT id, text FROM bullets WHERE node_slug = ? ORDER BY id",
+            (slug,),
+        ).fetchall()
+        conn.close()
+        return {
+            "slug": slug,
+            "title": title or slug,
+            "bullet_count": bullet_count,
+            "created_at": created_at,
+            "chunks": [(cid, text) for cid, text in chunks],
+        }
+    return None
+
+
+def _render_doc_page(cfg: KGConfig, doc: dict, show_chunks: bool) -> str:
+    """Render a _doc-* source file node with syntax-highlighted / markdown chunks."""
+    slug = doc["slug"]
+    title = doc["title"]  # relative path e.g. "src/kg/cli.py"
+    lang, is_md = _file_lang(title)
+    n = doc["bullet_count"]
+    created = f" · {doc['created_at'][:10]}" if doc.get("created_at") else ""
+
+    # Build chunks HTML
+    chunk_items: list[str] = []
+    for cid, text in doc["chunks"]:
+        esc = _html.escape(text)
+        chars = len(text)
+        hdr = (
+            f'<div class="chunk-hdr">'
+            f'<span>{_html.escape(cid)}</span>'
+            f'<span>{chars:,} chars</span>'
+            f'</div>'
+        )
+        if is_md:
+            content = (
+                f'<div class="md-body">'
+                f'<pre class="md-raw hidden">{esc}</pre>'
+                f'</div>'
+            )
+        else:
+            content = f'<pre><code class="language-{lang}">{esc}</code></pre>'
+        chunk_items.append(f'<div class="chunk">{hdr}{content}</div>')
+
+    vis = "" if show_chunks else " hidden"
+    chunks_section = (
+        f'<div id="chunks-section" class="chunks-section{vis}">{"".join(chunk_items)}</div>'
+        if chunk_items else ""
+    )
+
+    lbl = f"Show {n} chunk{'s' if n != 1 else ''}"
+    body = (
+        f'<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px">'
+        f'<h1><code style="font-size:1.1rem;background:none;padding:0">{_html.escape(title)}</code></h1>'
+        f'<label class="chunks-toggle">'
+        f'<input type="checkbox" id="toggle-chunks" {"checked" if show_chunks else ""}>'
+        f' <span id="toggle-label">{lbl if not show_chunks else lbl.replace("Show","Hide")}</span>'
+        f'</label>'
+        f'</div>'
+        f'<p class="meta">{_badge("doc")} [{_html.escape(slug)}] · {n} chunk{"s" if n != 1 else ""} · {lang}{created}</p>'
+        + chunks_section
+    )
+
+    # CDN scripts
+    extra_head = _HLJS_CSS + _HLJS_JS + (_MARKED_JS if is_md else "")
+
+    # JS: toggle + syntax highlight + markdown render + localStorage persist
+    restore_js = (
+        # Restore from localStorage if ?chunks not in URL
+        "var u=new URL(window.location);"
+        "if(!u.searchParams.has('chunks')&&localStorage.getItem('kg-chunks')==='1'){"
+        "  u.searchParams.set('chunks','1');location.replace(u.toString());}"
+    )
+    toggle_js = (
+        "(function(){"
+        + restore_js +
+        "  var sec=document.getElementById('chunks-section');"
+        "  var cb=document.getElementById('toggle-chunks');"
+        "  var lbl=document.getElementById('toggle-label');"
+        "  function setLabel(on){"
+        "    if(lbl)lbl.textContent=lbl.textContent.replace(on?'Show':'Hide',on?'Hide':'Show');"
+        "  }"
+        "  if(cb)cb.addEventListener('change',function(){"
+        "    var on=this.checked;"
+        "    var u=new URL(window.location);"
+        "    if(on){u.searchParams.set('chunks','1');localStorage.setItem('kg-chunks','1');}"
+        "    else{u.searchParams.delete('chunks');localStorage.removeItem('kg-chunks');}"
+        "    history.replaceState(null,'',u.toString());"
+        "    if(sec){if(on)sec.classList.remove('hidden');else sec.classList.add('hidden');}"
+        "    setLabel(on);"
+        "  });"
+    )
+    if is_md:
+        toggle_js += (
+            "  document.querySelectorAll('.md-raw').forEach(function(el){"
+            "    var raw=el.textContent;"
+            "    var div=el.parentElement;"
+            "    div.innerHTML=marked.parse(raw);"
+            "  });"
+        )
+    else:
+        toggle_js += "  if(typeof hljs!=='undefined')hljs.highlightAll();"
+    toggle_js += "})();"
+
+    return _page(cfg, title, body, extra_head=extra_head, extra_script=toggle_js)
 
 
 def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
@@ -192,9 +460,8 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
     if bl:
         body += f"<h2>Referenced by</h2>{bl}"
 
-    related = _related_html(cfg, node, set(from_slugs))
-    if related:
-        body += f"<h2>Related</h2>{related}"
+    # Related is lazy-loaded via JS to avoid blocking page render
+    body += _related_placeholder(node.slug)
 
     return _page(cfg, node.title, body)
 
@@ -255,6 +522,23 @@ def _related_html(cfg: KGConfig, node: FileNode, exclude: set[str]) -> str:
     return f'<div class="node-list">{"".join(items)}</div>'
 
 
+def _related_placeholder(slug: str) -> str:
+    """Render a placeholder div + script that fetches /api/related/<slug> lazily."""
+    esc = _html.escape(slug)
+    # Build script without f-string braces to avoid escaping complexity
+    script = (
+        'fetch("/api/related/' + esc + '")'
+        '.then(function(r){return r.text()})'
+        '.then(function(h){if(h){document.getElementById("kg-related").innerHTML=h}})'
+        '.catch(function(){})'
+    )
+    return (
+        '<h2>Related</h2>'
+        '<div id="kg-related"><p class="meta" style="opacity:.5">Loading\u2026</p></div>'
+        f'<script>{script}</script>'
+    )
+
+
 def _render_search_page(
     cfg: KGConfig,
     query: str,
@@ -272,6 +556,12 @@ def _render_search_page(
     for r in results:
         slug = r["slug"]
         title = _html.escape(r.get("title") or slug)
+        node_href = f"/node/{slug}"
+        # For doc nodes show path as code
+        if slug.startswith("_doc-"):
+            title_html = f'<a href="{node_href}"><code style="font-size:13px">{title}</code></a>'
+        else:
+            title_html = f'<a href="{node_href}">[{_html.escape(slug)}]</a> {title}'
         items = []
         for b in r["bullets"]:
             items.append(
@@ -282,7 +572,7 @@ def _render_search_page(
             )
         parts.append(
             f'<div class="sg">'
-            f'<h3><a href="/node/{slug}">[{_html.escape(slug)}]</a> {title}</h3>'
+            f'<h3>{title_html}</h3>'
             f'<div class="bullets">{"".join(items)}</div>'
             f'</div>'
         )
@@ -315,7 +605,8 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
     fts_scores: dict[str, float] = {}
     for r in raw:
         slug = r["slug"]
-        if slug.startswith("_"):
+        # Include _doc-* but skip other _ prefixed internal nodes
+        if slug.startswith("_") and not slug.startswith("_doc-"):
             continue
         if slug not in groups:
             groups[slug] = []
@@ -327,11 +618,12 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
     with contextlib.suppress(Exception):
         from kg.vector_client import search_vector
         for slug, score in search_vector(query, cfg, k=limit * 3):
-            if not slug.startswith("_"):
-                vec_scores[slug] = float(score)
-                if slug not in groups:
-                    groups[slug] = []
-                    fts_scores[slug] = 0.0
+            if slug.startswith("_") and not slug.startswith("_doc-"):
+                continue
+            vec_scores[slug] = float(score)
+            if slug not in groups:
+                groups[slug] = []
+                fts_scores[slug] = 0.0
 
     if not groups:
         return []
@@ -366,7 +658,7 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
 
     ranked = sorted(groups, key=_score, reverse=True)[:limit]
 
-    # Cross-encoder rerank
+    # Cross-encoder rerank (skip for doc chunks — use node-level text)
     if cfg.search.use_reranker and len(ranked) >= 2:
         with contextlib.suppress(Exception):
             from kg.reader import FileStore
@@ -374,10 +666,15 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
             store = FileStore(cfg.nodes_dir)
             candidates: list[tuple[str, str]] = []
             for slug in ranked:
-                node = store.get(slug)
-                if node:
-                    text = node.title + " " + " ".join(b.text for b in node.live_bullets[:5])
+                if slug.startswith("_doc-"):
+                    # Use chunk texts as candidate text
+                    text = " ".join(b["text"] for b in groups[slug][:3])
                     candidates.append((slug, text))
+                else:
+                    node = store.get(slug)
+                    if node:
+                        text = node.title + " " + " ".join(b.text for b in node.live_bullets[:5])
+                        candidates.append((slug, text))
             if len(candidates) >= 2:
                 reranked = rerank(query, candidates, cfg)
                 ranked = [s for s, _ in reranked]
@@ -414,35 +711,58 @@ class _Handler(BaseHTTPRequestHandler):
         if path in ("/", ""):
             self._index()
         elif path.startswith("/node/"):
-            self._node(path[6:])
+            slug = path[6:]
+            show_chunks = qs.get("chunks", ["0"])[0] == "1"
+            self._node(slug, show_chunks)
         elif path == "/search":
             self._search(qs.get("q", [""])[0])
+        elif path.startswith("/api/related/"):
+            self._api_related(path[13:])
         else:
             self._html(_render_404(self.cfg, path), 404)
 
     def _index(self) -> None:
-        from kg.reader import FileStore
-        nodes = list(FileStore(self.cfg.nodes_dir).iter_nodes())
-        self._html(_render_index(self.cfg, nodes))
+        self._html(_render_index(self.cfg))
 
-    def _node(self, slug: str) -> None:
+    def _node(self, slug: str, show_chunks: bool) -> None:
+        # Source file nodes live in SQLite, not FileStore
+        if slug.startswith("_doc-"):
+            doc = _get_doc_node(self.cfg, slug)
+            if doc is not None:
+                self._html(_render_doc_page(self.cfg, doc, show_chunks))
+            else:
+                self._html(_render_404(self.cfg, slug), 404)
+            return
         from kg.reader import FileStore
-        store = FileStore(self.cfg.nodes_dir)
-        node = store.get(slug)
+        node = FileStore(self.cfg.nodes_dir).get(slug)
         if node is None:
             self._html(_render_404(self.cfg, slug), 404)
             return
-        slugs = set(store.list_slugs())
+        slugs = _get_slugs_db(self.cfg)
         self._html(_render_node_page(self.cfg, node, slugs))
 
     def _search(self, query: str) -> None:
         if not query.strip():
             self._redirect("/")
             return
-        from kg.reader import FileStore
-        slugs = set(FileStore(self.cfg.nodes_dir).list_slugs())
+        slugs = _get_slugs_db(self.cfg)
         results = _do_search(query, self.cfg)
         self._html(_render_search_page(self.cfg, query, results, slugs))
+
+    def _api_related(self, slug: str) -> None:
+        import contextlib
+
+        from kg.reader import FileStore
+        node = FileStore(self.cfg.nodes_dir).get(slug)
+        if node is None:
+            self._html("")
+            return
+        from_slugs_set: set[str] = set()
+        with contextlib.suppress(Exception):
+            from kg.indexer import get_backlinks
+            from_slugs_set = set(get_backlinks(slug, self.cfg.db_path, self.cfg))
+        html = _related_html(self.cfg, node, from_slugs_set)
+        self._html(html)
 
     def _html(self, body: str, status: int = 200) -> None:
         encoded = body.encode()
