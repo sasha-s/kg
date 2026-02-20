@@ -18,6 +18,7 @@ from pathlib import Path
 
 import click
 
+from kg import reranker as _reranker
 from kg.bootstrap import bootstrap_patterns
 from kg.config import KGConfig, SourceConfig, init_config, load_config
 from kg.context import build_context
@@ -165,18 +166,19 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
 # kg show
 # ---------------------------------------------------------------------------
 
-def _show_backlinks(slug: str, cfg: KGConfig, limit: int = 10) -> None:
-    """Print bullets from other nodes that reference [slug], ranked by node embedding similarity."""
+def _show_backlinks(slug: str, cfg: KGConfig, query: str | None = None, limit: int = 10) -> None:
+    """Print bullets from other nodes that reference [slug].
+
+    With query: ranked by cross-encoder. Without: ranked by node embedding cosine similarity.
+    """
     if not cfg.db_path.exists():
         return
     conn = _get_db_conn(cfg)
     pattern = f"%[{slug}]%"
     rows = conn.execute(
-        """SELECT b.id, b.node_slug, n.title, b.text
+        """SELECT b.id, b.node_slug, b.text
            FROM bullets b
-           JOIN nodes n ON b.node_slug = n.slug
            WHERE b.text LIKE ? AND b.node_slug != ?
-           ORDER BY b.node_slug
            LIMIT 100""",
         (pattern, slug),
     ).fetchall()
@@ -184,59 +186,67 @@ def _show_backlinks(slug: str, cfg: KGConfig, limit: int = 10) -> None:
     if not rows:
         conn.close()
         return
-
-    # Try to rank by embedding cosine similarity to this node
-    target_row = conn.execute(
-        "SELECT vector FROM embeddings WHERE node_slug = ?", (slug,)
-    ).fetchone()
-
-    scored: list[tuple[float, tuple]] = []
-    if target_row:
-        try:
-            import numpy as np
-            target_vec = np.frombuffer(target_row[0], dtype=np.float32).copy()
-            tnorm = float(np.linalg.norm(target_vec))
-            if tnorm:
-                target_vec /= tnorm
-            node_vecs: dict[str, float] = {}
-            for row in rows:
-                ns = row[1]
-                if ns not in node_vecs:
-                    emb_row = conn.execute(
-                        "SELECT vector FROM embeddings WHERE node_slug = ?", (ns,)
-                    ).fetchone()
-                    if emb_row:
-                        v = np.frombuffer(emb_row[0], dtype=np.float32).copy()
-                        vnorm = float(np.linalg.norm(v))
-                        node_vecs[ns] = float(np.dot(target_vec, v / vnorm)) if vnorm else 0.0
-                    else:
-                        node_vecs[ns] = 0.0
-                scored.append((node_vecs[ns], row))
-            scored.sort(key=lambda x: x[0], reverse=True)
-        except Exception:
-            scored = [(0.0, r) for r in rows]
-    else:
-        scored = [(0.0, r) for r in rows]
-
     conn.close()
-    click.echo(f"\nReferenced by ({min(len(scored), limit)}):")
-    for _score, (bid, node_slug, _title, text) in scored[:limit]:
+
+    if query:
+        ranked = _reranker.rerank(query, [(r[0], r[2]) for r in rows], cfg)
+        id_order = {cid: i for i, (cid, _) in enumerate(ranked)}
+        rows_sorted = sorted(rows, key=lambda r: id_order.get(r[0], len(rows)))
+    else:
+        rows_sorted = rows
+
+    click.echo(f"\nReferenced by ({min(len(rows_sorted), limit)}):")
+    for bid, node_slug, text in rows_sorted[:limit]:
         click.echo(f"  [{node_slug}] {text}  ←{bid}")
+
+
+def _show_links_to(slug: str, cfg: KGConfig, query: str | None = None, limit: int = 10) -> None:
+    """Print outgoing cross-references from this node.
+
+    With query: ranked by cross-encoder against target node title.
+    Without: listed in natural order.
+    """
+    if not cfg.db_path.exists():
+        return
+    conn = _get_db_conn(cfg)
+    rows = conn.execute(
+        """SELECT bl.to_slug, n.title
+           FROM backlinks bl
+           JOIN nodes n ON n.slug = bl.to_slug
+           WHERE bl.from_slug = ?
+           ORDER BY bl.to_slug""",
+        (slug,),
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return
+
+    if query:
+        ranked = _reranker.rerank(query, list(rows), cfg)
+        id_order = {cid: i for i, (cid, _) in enumerate(ranked)}
+        rows = sorted(rows, key=lambda r: id_order.get(r[0], len(rows)))
+
+    click.echo(f"\nLinks to ({min(len(rows), limit)}):")
+    for to_slug, title in rows[:limit]:
+        click.echo(f"  [{to_slug}] {title}")
 
 
 @cli.command()
 @click.argument("slug")
+@click.option("--query", "-q", default=None, help="Rank bullets and links by relevance to this query")
 @click.option("--limit", "-l", default=10, show_default=True, help="Max bullets to show (0 = all)")
-@click.option("--offset", "-o", default=0, show_default=True, help="Skip first N bullets (for pagination)")
+@click.option("--offset", "-o", default=0, show_default=True, help="Skip first N bullets (for pagination, ignored with -q)")
 @click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
-@click.option("--no-backlinks", is_flag=True, help="Skip backlinks section")
-def show(slug: str, limit: int, offset: int, max_width: int, no_backlinks: bool) -> None:
+@click.option("--no-backlinks", is_flag=True, help="Skip backlinks and links sections")
+def show(slug: str, query: str | None, limit: int, offset: int, max_width: int, no_backlinks: bool) -> None:
     """Show bullets for a node.
 
     \b
-    kg show <slug>           # first 10 bullets
-    kg show <slug> -l 0      # all bullets
-    kg show <slug> -l 5 -o 5 # bullets 6-10
+    kg show <slug>              # first 10 bullets
+    kg show <slug> -l 0         # all bullets
+    kg show <slug> -l 5 -o 5    # bullets 6-10
+    kg show <slug> -q "query"   # rank bullets and links by relevance
     """
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
@@ -246,12 +256,24 @@ def show(slug: str, limit: int, offset: int, max_width: int, no_backlinks: bool)
 
     live = node.live_bullets
     total = len(live)
-    page = live[offset:] if limit == 0 else live[offset:offset + limit]
-    shown = len(page)
 
+    if query:
+        ranked = _reranker.rerank(query, [(b.id, b.text) for b in live], cfg)
+        id_order = {bid: i for i, (bid, _) in enumerate(ranked)}
+        live = sorted(live, key=lambda b: id_order.get(b.id, total))
+        page = live if limit == 0 else live[:limit]
+        ranked_label = f'  ranked by "{query}"'
+    else:
+        page = live[offset:] if limit == 0 else live[offset:offset + limit]
+        ranked_label = ""
+
+    shown = len(page)
     budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
     created = f"  created {node.created_at[:10]}" if node.created_at else ""
-    page_info = f"  [{offset + 1}-{offset + shown} of {total}]" if (offset or (limit and shown < total)) else f"  [{total} total]" if limit == 0 else ""
+    if query:
+        page_info = f"  [top {shown} of {total}{ranked_label}]" if shown < total else f"  [{total} total{ranked_label}]"
+    else:
+        page_info = f"  [{offset + 1}-{offset + shown} of {total}]" if (offset or (limit and shown < total)) else f"  [{total} total]" if limit == 0 else ""
     threshold = cfg.review.budget_threshold
     hint = node.review_hint(threshold=threshold, bullet_count=total)
     click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{total} bullets{budget_info}{created}{page_info}")
@@ -267,10 +289,11 @@ def show(slug: str, limit: int, offset: int, max_width: int, no_backlinks: bool)
         vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
         text = (b.text[:max_width] + "…") if max_width and len(b.text) > max_width else b.text
         click.echo(f"  {prefix}{text}  ←{b.id}{vote_info}")
-    if limit and shown < total and not offset:
+    if not query and limit and shown < total and not offset:
         click.echo(f"  … {total - shown} more  (use -l 0 or -o {shown} to see more)")
     if not no_backlinks:
-        _show_backlinks(slug, cfg)
+        _show_backlinks(slug, cfg, query=query)
+        _show_links_to(slug, cfg, query=query)
 
 
 # ---------------------------------------------------------------------------
