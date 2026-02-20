@@ -1,6 +1,13 @@
 {
-  "token_budget": 19432.0,
+  "token_budget": 20671.0,
   "last_reviewed": "",
   "last_bullet_checkpoint": 0,
-  "bullets": {}
+  "bullets": {
+    "b-9ccd9565": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-20T08:37:05.385841+00:00"
+    }
+  }
 }
