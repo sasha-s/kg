@@ -68,6 +68,11 @@ def init(name: str | None, root: str) -> None:
     n = rebuild_all(cfg.nodes_dir, cfg.db_path)
     click.echo(f"Indexed {n} nodes")
 
+    from kg.bootstrap import bootstrap_patterns
+    slugs = bootstrap_patterns(cfg)
+    if slugs:
+        click.echo(f"Bootstrapped patterns: {', '.join(slugs)}")
+
 
 # ---------------------------------------------------------------------------
 # kg reindex / kg upgrade
@@ -224,6 +229,95 @@ def context(
         return
 
     click.echo(result.format_compact())
+
+
+# ---------------------------------------------------------------------------
+# kg bootstrap
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--overwrite", is_flag=True, help="Re-install even if pattern nodes already exist")
+@click.pass_context
+def bootstrap(ctx: click.Context, overwrite: bool) -> None:
+    """Load bundled pattern nodes into the graph (fleeting-notes, graph-first-workflow, etc.)."""
+    from kg.bootstrap import bootstrap_patterns
+    cfg = _load_cfg(ctx)
+    slugs = bootstrap_patterns(cfg, overwrite=overwrite)
+    if slugs:
+        click.echo(f"Bootstrapped: {', '.join(slugs)}")
+    else:
+        click.echo("All patterns already present (use --overwrite to reinstall)")
+
+
+# ---------------------------------------------------------------------------
+# kg start / status / stop
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--scope", default="user", type=click.Choice(["user", "local", "project"]), show_default=True, help="Claude MCP scope")
+@click.pass_context
+def start(ctx: click.Context, scope: str) -> None:
+    """Ensure everything is running: index, watcher, MCP server, hooks."""
+    from kg.daemon import ensure_watcher
+    from kg.indexer import rebuild_all
+    from kg.install import ensure_hook_installed, ensure_mcp_registered
+
+    cfg = _load_cfg(ctx)
+    cfg.ensure_dirs()
+
+    # 1. Reindex
+    click.echo("Indexing nodes...")
+    n = rebuild_all(cfg.nodes_dir, cfg.db_path)
+    click.echo(f"  ✓ Indexed {n} nodes")
+
+    # 2. Watcher
+    click.echo("Starting watcher...")
+    method, status = ensure_watcher(cfg)
+    click.echo(f"  ✓ Watcher [{method}]: {status}")
+
+    # 3. MCP server
+    click.echo("Registering MCP server...")
+    ok, msg = ensure_mcp_registered(scope=scope)
+    marker = "✓" if ok else "✗"
+    click.echo(f"  {marker} {msg}")
+
+    # 4. Hook
+    click.echo("Installing session_context hook...")
+    ok, msg = ensure_hook_installed()
+    marker = "✓" if ok else "✗"
+    click.echo(f"  {marker} {msg}")
+
+    click.echo("\nDone. Run `kg status` to verify.")
+
+
+@cli.command()
+@click.pass_context
+def status(ctx: click.Context) -> None:
+    """Show status of watcher, MCP server, and hook."""
+    from kg.daemon import watcher_status
+    from kg.install import mcp_health
+
+    cfg = _load_cfg(ctx)
+
+    from kg.reader import FileStore
+    store = FileStore(cfg.nodes_dir)
+    node_count = len(store.list_slugs())
+
+    click.echo(f"Project   : {cfg.name} ({cfg.root})")
+    click.echo(f"Nodes     : {node_count} ({cfg.nodes_dir})")
+    click.echo(f"Index     : {cfg.db_path}")
+    click.echo(f"Watcher   : {watcher_status(cfg)}")
+    click.echo(f"MCP       : {mcp_health(cfg)}")
+
+
+@cli.command()
+@click.pass_context
+def stop(ctx: click.Context) -> None:
+    """Stop the background watcher (if running via PID file)."""
+    from kg.daemon import stop_watcher
+    cfg = _load_cfg(ctx)
+    result = stop_watcher(cfg)
+    click.echo(f"Watcher: {result}")
 
 
 # ---------------------------------------------------------------------------

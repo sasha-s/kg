@@ -33,6 +33,9 @@ kg = "kg.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/kg"]
 
+[tool.hatch.build.targets.wheel.sources]
+"src" = "src"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
