@@ -8,16 +8,25 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from kg.config import KGConfig
 
-_HOOK_COMMAND = "python -m kg.hooks.session_context"
-_STOP_HOOK_COMMAND = "python -m kg.hooks.stop"
+# Use sys.executable so the installed Python (with kg) runs the hook.
+# Matches mg's pattern: f"{sys.executable} -m memory_graph.hooks.<name>"
+_HOOK_COMMAND = f"{sys.executable} -m kg.hooks.session_context"
+_STOP_HOOK_COMMAND = f"{sys.executable} -m kg.hooks.stop"
 _MCP_SERVER_NAME = "kg"
-_KG_HOOK_COMMANDS = {_HOOK_COMMAND, _STOP_HOOK_COMMAND}
+# Module-name fragments used to recognize kg hooks regardless of Python path
+_KG_HOOK_MODULES = {"kg.hooks.session_context", "kg.hooks.stop"}
+
+
+def _is_kg_hook(command: str) -> bool:
+    """True if command is a kg hook (regardless of which Python binary)."""
+    return any(m in command for m in _KG_HOOK_MODULES)
 
 
 # ---------------------------------------------------------------------------
@@ -93,10 +102,14 @@ def ensure_hook_installed() -> tuple[bool, str]:
     hooks_section = settings.setdefault("hooks", {})
     ups_list = hooks_section.setdefault("UserPromptSubmit", [])
 
-    # Check if already present
+    # Check if already present (any Python path)
     for entry in ups_list:
         for h in entry.get("hooks", []):
-            if h.get("command") == _HOOK_COMMAND:
+            if "kg.hooks.session_context" in h.get("command", ""):
+                # Update stale command to use current sys.executable
+                if h["command"] != _HOOK_COMMAND:
+                    h["command"] = _HOOK_COMMAND
+                    _save_settings(path, settings)
                 return True, "session_context hook already installed"
 
     # Append
@@ -131,7 +144,7 @@ def hook_status() -> str:
     settings = _load_settings(path)
     for entry in settings.get("hooks", {}).get("UserPromptSubmit", []):
         for h in entry.get("hooks", []):
-            if h.get("command") == _HOOK_COMMAND:
+            if "kg.hooks.session_context" in h.get("command", ""):
                 return "installed"
     return "not installed — run `kg start` to install"
 
@@ -146,7 +159,11 @@ def ensure_stop_hook_installed() -> tuple[bool, str]:
 
     for entry in stop_list:
         for h in entry.get("hooks", []):
-            if h.get("command") == _STOP_HOOK_COMMAND:
+            if "kg.hooks.stop" in h.get("command", ""):
+                # Update stale command to use current sys.executable
+                if h["command"] != _STOP_HOOK_COMMAND:
+                    h["command"] = _STOP_HOOK_COMMAND
+                    _save_settings(path, settings)
                 return True, "stop hook already installed"
 
     stop_list.append({"hooks": [{"type": "command", "command": _STOP_HOOK_COMMAND}]})
@@ -171,7 +188,7 @@ def list_all_hooks(settings_path: Path | None = None) -> list[dict[str, Any]]:
                         "event": event,
                         "type": h.get("type", "command"),
                         "command": cmd,
-                        "kg": cmd in _KG_HOOK_COMMANDS,
+                        "kg": _is_kg_hook(cmd),
                     }
                 )
     return result

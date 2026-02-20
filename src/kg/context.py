@@ -137,6 +137,14 @@ def build_context(
                 if not slug.startswith(_INTERNAL_PREFIX):
                     vec_scores[slug] = float(score)
 
+    # Include vector-only hits (no FTS match) — load all their bullets
+    store_for_vec = FileStore(nodes_dir)
+    for slug in vec_scores:
+        if slug not in groups and (not seen_slugs or slug not in seen_slugs):
+            node = store_for_vec.get(slug)
+            if node is not None:
+                groups[slug] = [(b.id, b.text) for b in node.live_bullets]
+
     sorted_slugs = _rank_slugs(groups, fts_scores, vec_scores, db_path, cfg)
 
     # Rerank top results with cross-encoder (uses rerank_query or query)

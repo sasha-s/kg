@@ -13,6 +13,7 @@ Commands:
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from kg.daemon import (
 )
 from kg.db import get_conn as _get_db_conn
 from kg.file_indexer import collect_files, index_source
-from kg.indexer import calibrate, get_calibration_status, index_node, rebuild_all, search_fts
+from kg.indexer import calibrate, get_calibration, get_calibration_status, index_node, rebuild_all
 from kg.install import (
     ensure_hook_installed,
     ensure_mcp_registered,
@@ -370,7 +371,7 @@ def show(
 
 @cli.command()
 @click.argument("slug", required=False)
-@click.option("--limit", "-n", default=20, show_default=True)
+@click.option("--limit", "-l", default=20, show_default=True)
 @click.option(
     "--threshold",
     default=None,
@@ -452,56 +453,59 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
 @click.option(
     "--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)"
 )
-@click.option("--limit", "-n", default=20, show_default=True)
+@click.option("--limit", "-l", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
 def search(
     query: str | None,
     query_file: str | None,
-    rerank_query: str | None,  # noqa: ARG001
-    session: str | None,  # noqa: ARG001
+    rerank_query: str | None,
+    session: str | None,
     limit: int,
     flat: bool,
 ) -> None:
-    """FTS5 search over bullets."""
+    """Hybrid FTS + vector search over bullets."""
     if query_file:
         query = Path(query_file).read_text().strip()
     if not query:
         raise click.ClickException("Provide QUERY or --query-file / -Q")
 
     cfg = _load_cfg()
-    rows = search_fts(query, cfg.db_path, limit=limit, cfg=cfg)
-    if not rows:
+
+    # Use build_context for blended FTS + vector + reranking (same as `kg context`)
+    ctx = build_context(
+        query,
+        db_path=cfg.db_path,
+        nodes_dir=cfg.nodes_dir,
+        cfg=cfg,
+        max_tokens=limit * 200,  # generous but bounded
+        limit=limit,
+        session_id=session,
+        rerank_query=rerank_query,
+        update_budget=False,  # search does not count toward budget
+    )
+
+    if not ctx.nodes:
         click.echo("(no results)")
         return
 
+    max_bullets = 3  # max bullets shown per node in search output
+
     if flat:
-        for r in rows:
-            click.echo(f"[{r['slug']}] {r['text']}  ←{r['bullet_id']}")
+        for node in ctx.nodes:
+            for bid, text in node.bullets[:max_bullets]:
+                click.echo(f"[{node.slug}] {text}  ←{bid}")
         return
 
-    # Group by slug, fetch titles from index
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        groups.setdefault(r["slug"], []).append(r)
-
-    if cfg.db_path.exists():
-        conn = _get_db_conn(cfg)
-        titles: dict[str, str] = dict(
-            conn.execute(
-                f"SELECT slug, title FROM nodes WHERE slug IN ({','.join('?' * len(groups))})",  # noqa: S608
-                list(groups),
-            ).fetchall()
-        )
-        conn.close()
-    else:
-        titles = {}
-
-    for slug, bullets in groups.items():
-        title = titles.get(slug, "")
-        header = f"[{slug}]" + (f"  {title}" if title and title != slug else "")
+    for node in ctx.nodes:
+        title = node.title
+        header = f"[{node.slug}]" + (f"  {title}" if title and title != node.slug else "")
+        shown = node.bullets[:max_bullets]
+        hidden = len(node.bullets) - len(shown)
         click.echo(f"\n{header}")
-        for b in bullets:
-            click.echo(f"  {b['text']}  ←{b['bullet_id']}")
+        for bid, text in shown:
+            click.echo(f"  {text}  ←{bid}")
+        if hidden > 0:
+            click.echo(f"  … {hidden} more  (kg show {node.slug})")
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +518,7 @@ def search(
 @click.option("--compact", "-c", is_flag=True, help="Compact output (default)")
 @click.option("--session", "-s", default=None, help="Session ID for differential context")
 @click.option("--max-tokens", default=1000, show_default=True)
-@click.option("--limit", "-n", default=20, show_default=True)
+@click.option("--limit", "-l", default=20, show_default=True)
 @click.option("--query-file", "-Q", default=None, type=click.Path(exists=True))
 @click.option(
     "--rerank-query",
@@ -807,6 +811,20 @@ def status() -> None:
             f"Calibration: {flag}  ({cal['bullet_count']} bullets, "
             f"{ops} ops since, {delta_str} bullets){hint}"
         )
+        # Show quantile ranges for FTS and vector
+        fts_cal = get_calibration("fts", cfg.db_path, cfg)
+        vec_cal = get_calibration("vector", cfg.db_path, cfg)
+        parts: list[str] = []
+        if fts_cal:
+            brk = fts_cal[1]
+            p25, p95 = brk[5], brk[18]  # approx p25..p95 of 20 buckets
+            parts.append(f"FTS p25..p95: {p25:.2f}..{p95:.2f}")
+        if vec_cal:
+            brk = vec_cal[1]
+            p25, p95 = brk[5], brk[18]
+            parts.append(f"Vec p25..p95: {p25:.3f}..{p95:.3f}")
+        if parts:
+            click.echo(f"             {' | '.join(parts)}")
 
     w_status = watcher_status(cfg)
     w_hint = "  — run `kg start` to start" if w_status == "stopped" else ""
@@ -817,26 +835,33 @@ def status() -> None:
     click.echo(f"MCP       : {mcp_health(cfg)}")
 
     # Hooks — installed hooks + kg hooks not yet installed
-    from kg.install import _HOOK_COMMAND, _STOP_HOOK_COMMAND, _claude_settings_path
+    from kg.install import _claude_settings_path, _is_kg_hook
 
     hooks = list_all_hooks()
     settings_path = _claude_settings_path()
-    installed_commands = {h["command"] for h in hooks}
+
+    # Check if each expected kg hook module is installed (regardless of Python path)
+    def _module_installed(module: str) -> bool:
+        return any(module in h["command"] for h in hooks)
 
     # Expected kg hooks based on config
-    kg_expected: list[tuple[str, str, bool]] = [
-        ("UserPromptSubmit", _HOOK_COMMAND, True),  # always expected
-    ]
+    kg_expected_modules = ["kg.hooks.session_context"]
     if cfg.hooks.stop:
-        kg_expected.append(("Stop", _STOP_HOOK_COMMAND, True))
+        kg_expected_modules.append("kg.hooks.stop")
+
+    event_for_module = {
+        "kg.hooks.session_context": "UserPromptSubmit",
+        "kg.hooks.stop": "Stop",
+    }
 
     all_lines: list[str] = []
     for h in hooks:
-        kg_marker = " [kg]" if h["kg"] else ""
+        kg_marker = " [kg]" if _is_kg_hook(h["command"]) else ""
         all_lines.append(f"  {h['event']}  {h['command']}{kg_marker}")
-    for event, cmd, _ in kg_expected:
-        if cmd not in installed_commands:
-            all_lines.append(f"  {event}  {cmd} [kg] ✗ not installed — run `kg start`")
+    for module in kg_expected_modules:
+        if not _module_installed(module):
+            event = event_for_module.get(module, "?")
+            all_lines.append(f"  {event}  {sys.executable} -m {module} [kg] ✗ not installed — run `kg start`")
 
     n_installed = len(hooks)
     if not all_lines:
