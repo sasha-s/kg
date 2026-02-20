@@ -67,6 +67,31 @@ def _tool_defs() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "memory_review",
+            "description": "List nodes ordered by accumulated token budget — these need examination and maintenance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "threshold": {"type": "number", "default": 500, "description": "Min credits to list"},
+                    "limit": {"type": "integer", "default": 20},
+                },
+            },
+        },
+        {
+            "name": "memory_mark_reviewed",
+            "description": (
+                "Mark a node as reviewed after you have examined it, updated stale bullets, "
+                "and pushed relevant info to other nodes. Clears the token budget."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string"},
+                },
+                "required": ["slug"],
+            },
+        },
+        {
             "name": "memory_add_bullet",
             "description": "Add a bullet to a node. Auto-creates node if it doesn't exist.",
             "inputSchema": {
@@ -121,7 +146,6 @@ class KGServer:
         return "\n".join(lines)
 
     def _call_memory_show(self, args: dict[str, Any]) -> str:
-        from kg.indexer import index_node
         from kg.reader import FileStore
         store = FileStore(self._cfg.nodes_dir)
         slug = args["slug"]
@@ -134,13 +158,43 @@ class KGServer:
         lines = [f"# {node.title} [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}"]
         if hint:
             lines.append(f"  {hint}")
+            lines.append("  Call memory_mark_reviewed after examining and updating this node.")
         for b in live:
             prefix = f"({b.type}) " if b.type != "fact" else ""
             lines.append(f"- {prefix}{b.text}  ←{b.id}")
-        # Explicit examination clears the budget
-        if node.token_budget > 0:
-            store.clear_node_budget(slug)
-            index_node(slug, nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
+        return "\n".join(lines)
+
+    def _call_memory_mark_reviewed(self, args: dict[str, Any]) -> str:
+        from kg.indexer import index_node
+        from kg.reader import FileStore
+        slug = args["slug"]
+        store = FileStore(self._cfg.nodes_dir)
+        if not store.exists(slug):
+            return f"Node not found: {slug}"
+        store.clear_node_budget(slug)
+        index_node(slug, nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
+        return f"Marked reviewed: {slug}"
+
+    def _call_memory_review(self, args: dict[str, Any]) -> str:
+        import sqlite3
+        if not self._cfg.db_path.exists():
+            return "No index — run kg reindex first"
+        threshold = float(args.get("threshold", 500))
+        limit = int(args.get("limit", 20))
+        conn = sqlite3.connect(str(self._cfg.db_path))
+        rows = conn.execute(
+            """SELECT slug, title, bullet_count, token_budget
+               FROM nodes
+               WHERE token_budget >= ? AND type NOT LIKE '_%'
+               ORDER BY token_budget DESC LIMIT ?""",
+            (threshold, limit),
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return "No nodes need review — graph looks healthy."
+        lines = [f"{'Credits':>8}  {'Bullets':>7}  Node", "-" * 50]
+        for slug, title, bc, budget in rows:
+            lines.append(f"{int(budget):>8}  {bc or 0:>7}  [{slug}] {title}")
         return "\n".join(lines)
 
     def _call_memory_add_bullet(self, args: dict[str, Any]) -> str:
@@ -162,6 +216,8 @@ class KGServer:
             "memory_search": self._call_memory_search,
             "memory_show": self._call_memory_show,
             "memory_add_bullet": self._call_memory_add_bullet,
+            "memory_mark_reviewed": self._call_memory_mark_reviewed,
+            "memory_review": self._call_memory_review,
         }
         if name not in dispatch:
             msg = f"Unknown tool: {name}"

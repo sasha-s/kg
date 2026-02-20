@@ -155,11 +155,8 @@ def show(ctx: click.Context, slug: str) -> None:
             vote_info = f"  [+{b.useful}/-{b.harmful}]"
         click.echo(f"  {prefix}{b.text}  ←{b.id}{vote_info}")
 
-    # Explicit examination clears the budget
-    if node.token_budget > 0:
-        store.clear_node_budget(slug)
-        from kg.indexer import index_node
-        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
+    if hint:
+        click.echo(f"\n  Run `kg review {slug}` after examining to clear the budget.")
 
 
 # ---------------------------------------------------------------------------
@@ -167,13 +164,35 @@ def show(ctx: click.Context, slug: str) -> None:
 # ---------------------------------------------------------------------------
 
 @cli.command()
+@click.argument("slug", required=False)
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--threshold", default=500.0, show_default=True, help="Min token_budget to list")
 @click.pass_context
-def review(ctx: click.Context, limit: int, threshold: float) -> None:
-    """List nodes that need review, ordered by accumulated token budget."""
-    import sqlite3
+def review(ctx: click.Context, slug: str | None, limit: int, threshold: float) -> None:
+    """List nodes needing review, or mark a node as reviewed.
+
+    \b
+    kg review              # list nodes ordered by budget
+    kg review <slug>       # mark as reviewed — clears budget
+    """
+    from kg.indexer import index_node
+    from kg.reader import FileStore
+
     cfg = _load_cfg(ctx)
+
+    if slug:
+        # Mark a specific node as reviewed
+        store = FileStore(cfg.nodes_dir)
+        node = store.get(slug)
+        if node is None:
+            raise click.ClickException(f"Node not found: {slug}")
+        store.clear_node_budget(slug)
+        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
+        click.echo(f"Marked reviewed: [{slug}] {node.title}  (budget cleared)")
+        return
+
+    # List nodes needing review
+    import sqlite3
     if not cfg.db_path.exists():
         click.echo("No index found — run `kg reindex` first")
         return
@@ -192,9 +211,9 @@ def review(ctx: click.Context, limit: int, threshold: float) -> None:
         return
     click.echo(f"{'Credits':>8}  {'Bullets':>7}  Node")
     click.echo("-" * 50)
-    for slug, title, bullet_count, budget, last_reviewed in rows:
-        reviewed = f"  reviewed {last_reviewed[:10]}" if last_reviewed else ""
-        click.echo(f"{int(budget):>8}  {bullet_count or 0:>7}  [{slug}] {title}{reviewed}")
+    for row_slug, title, bullet_count, budget, last_reviewed in rows:
+        reviewed = f"  last reviewed {last_reviewed[:10]}" if last_reviewed else ""
+        click.echo(f"{int(budget):>8}  {bullet_count or 0:>7}  [{row_slug}] {title}{reviewed}")
 
 
 # ---------------------------------------------------------------------------
