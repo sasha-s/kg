@@ -226,7 +226,7 @@ def main() -> None:
         "--append-system-prompt-file",
         str(prompt_file),
         "--model",
-        "haiku",
+        "sonnet",
         "--allowedTools",
         "Bash(kg add *)",
         "Bash(kg show *)",
@@ -245,6 +245,10 @@ def main() -> None:
         del env[key]
     env[_KG_NO_STOP_HOOK] = "1"
 
+    # Must run from cwd so claude resolves the session path correctly
+    # (~/.claude/projects/<cwd-hash>/<session_id>.jsonl)
+    run_cwd = cwd if cwd and Path(cwd).is_dir() else None
+
     try:
         log_fh = log_file.open("a")
         subprocess.Popen(
@@ -254,8 +258,9 @@ def main() -> None:
             close_fds=True,
             start_new_session=True,
             env=env,
+            cwd=run_cwd,
         )
-        _log(session_id, f"spawned extraction (model=haiku session={session_id[:12]})")
+        _log(session_id, f"spawned extraction (model=sonnet session={session_id[:12]} cwd={run_cwd})")
     except Exception as exc:
         _log(session_id, f"failed to spawn: {exc}")
 
