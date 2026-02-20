@@ -174,6 +174,25 @@ _HLJS_CSS = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs
 _HLJS_JS = '<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>'
 _MARKED_JS = '<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>'
 
+# Shared JS for show/hide source-file sections — used on index + search pages.
+# Works with any button label as long as it starts with "Show" or "Hide".
+_TOGGLE_DOCS_JS = """
+(function(){
+  var K='kg-docs',sec=document.getElementById('docs-section'),btn=document.getElementById('docs-btn');
+  function setDocs(on){
+    if(!sec)return;
+    if(on){sec.classList.remove('hidden');if(btn)btn.textContent=btn.textContent.replace(/^Show/,'Hide');}
+    else{sec.classList.add('hidden');if(btn)btn.textContent=btn.textContent.replace(/^Hide/,'Show');}
+  }
+  if(localStorage.getItem(K)==='1')setDocs(true);
+  window.toggleDocs=function(){
+    var on=sec&&sec.classList.contains('hidden');
+    setDocs(on);
+    if(on)localStorage.setItem(K,'1');else localStorage.removeItem(K);
+  };
+})();
+"""
+
 
 def _badge(node_type: str) -> str:
     cls = f"bt-{node_type}" if node_type in _NODE_TYPES | {"doc"} else "bt-other"
@@ -286,23 +305,7 @@ def _render_index(cfg: KGConfig) -> str:
         + docs_section
     )
 
-    js = """
-(function(){
-  var K='kg-docs',sec=document.getElementById('docs-section'),btn=document.getElementById('docs-btn');
-  function setDocs(on){
-    if(!sec)return;
-    if(on){sec.classList.remove('hidden');if(btn)btn.textContent='Hide source files';}
-    else{sec.classList.add('hidden');if(btn)btn.textContent=btn.textContent.replace('Hide','Show');}
-  }
-  if(localStorage.getItem(K)==='1')setDocs(true);
-  window.toggleDocs=function(){
-    var on=sec&&sec.classList.contains('hidden');
-    setDocs(on);
-    if(on)localStorage.setItem(K,'1');else localStorage.removeItem(K);
-  };
-})();
-"""
-    return _page(cfg, cfg.name, body, extra_script=js)
+    return _page(cfg, cfg.name, body, extra_script=_TOGGLE_DOCS_JS)
 
 
 # ─── Doc node (source file) renderer ─────────────────────────────────────────
@@ -577,23 +580,37 @@ def _render_search_page(
         )
 
     doc_parts = []
+    need_hljs = False
+    need_marked = False
     for r in doc_results:
         slug = r["slug"]
-        title = _html.escape(r.get("title") or slug)
+        raw_title = r.get("title") or slug
+        title = _html.escape(raw_title)
         node_href = f"/node/{slug}"
         title_html = f'<a href="{node_href}"><code style="font-size:13px">{title}</code></a>'
+        lang, is_md = _file_lang(raw_title)
+        if is_md:
+            need_marked = True
+        else:
+            need_hljs = True
         items = []
         for b in r["bullets"]:
+            text = b["text"]
+            preview = text[:800] + ("…" if len(text) > 800 else "")
+            esc = _html.escape(preview)
+            if is_md:
+                chunk_html = f'<div class="md-body"><pre class="md-raw hidden">{esc}</pre></div>'
+            else:
+                chunk_html = f'<pre style="margin:0"><code class="language-{lang}" style="font-size:11px;line-height:1.4">{esc}</code></pre>'
             items.append(
-                f'<div class="bullet">'
-                f'<span class="btx">{_render(b["text"], slugs)}</span>'
-                f'<span class="bid">{_html.escape(b["bullet_id"])}</span>'
+                f'<div class="chunk" style="border-radius:6px;overflow:hidden;margin-bottom:6px">'
+                f'{chunk_html}'
                 f'</div>'
             )
         doc_parts.append(
             f'<div class="sg">'
             f'<h3>{title_html}</h3>'
-            f'<div class="bullets">{"".join(items)}</div>'
+            f'{"".join(items)}'
             f'</div>'
         )
 
@@ -612,13 +629,29 @@ def _render_search_page(
             f'</button>'
         )
 
+    extra_head = ""
+    extra_script = _TOGGLE_DOCS_JS
+    if need_hljs or need_marked:
+        extra_head = _HLJS_CSS + _HLJS_JS + (_MARKED_JS if need_marked else "")
+        hljs_init = (
+            "document.querySelectorAll('.md-raw').forEach(function(el){"
+            "var raw=el.textContent;var div=el.parentElement;div.innerHTML=marked.parse(raw);});"
+            if need_marked else ""
+        )
+        extra_script += (
+            "(function(){"
+            + hljs_init
+            + "if(typeof hljs!=='undefined')hljs.highlightAll();"
+            + "})();"
+        )
+
     body = (
         f'<h1>"{_html.escape(query)}"</h1>'
         f'<p class="meta">{len(concept_results)} nodes matched  {docs_btn}</p>'
         + "".join(parts)
         + docs_section
     )
-    return _page(cfg, f"Search: {query}", body, q=query)
+    return _page(cfg, f"Search: {query}", body, q=query, extra_head=extra_head, extra_script=extra_script)
 
 
 def _render_404(cfg: KGConfig, what: str) -> str:
