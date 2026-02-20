@@ -9,7 +9,9 @@ description = "Lightweight knowledge graph: JSONL files, SQLite index, inotify w
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "click>=8.0",
+]
 
 [project.optional-dependencies]
 embeddings = [
@@ -24,6 +26,9 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+
+[project.scripts]
+kg = "kg.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kg"]
