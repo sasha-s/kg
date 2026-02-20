@@ -25,3 +25,5 @@
 {"id": "b-e7f51048", "deleted": true}
 {"id": "b-122de9b0", "deleted": true}
 {"id": "b-811afd86", "deleted": true}
+{"id": "b-a01cb112", "type": "fact", "text": "allowedTools: kg add, kg show, kg nodes, kg search, kg context, kg review, kg create, kg vote, kg update, kg delete. kg nodes added so extractor can browse slugs for cross-links.", "created_at": "2026-02-20T08:45:31.324674+00:00"}
+{"id": "b-8f648c6a", "type": "fact", "text": "Prompt Step 2 distinction: Promote+delete from fleeting vs Delete (transient, just remove) vs Defer (leave). After promoting or discarding a bullet, kg delete <bullet_id> from fleeting.", "created_at": "2026-02-20T08:45:31.915174+00:00"}

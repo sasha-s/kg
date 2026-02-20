@@ -1,0 +1,4 @@
+{"v": 1, "slug": "kg-skills", "title": "kg Skills", "type": "concept", "created_at": "2026-02-20T08:45:41.007884+00:00"}
+{"id": "b-98838100", "type": "fact", "text": "Skills location: .kg/skills/<name>/SKILL.md \u2014 accessible as .claude/skills/ via the .claude\u2192.kg symlink. Claude Code discovers them automatically.", "created_at": "2026-02-20T08:45:41.623292+00:00"}
+{"id": "b-02dd8088", "type": "fact", "text": "/note skill [kg-stop-hook]: Phase 1 sync \u2014 kg create notes-YYYY-MM-DD + kg add [HH:MM] text --type note, report bullet ID. Phase 2 async \u2014 Task(Explore) does kg search + kg context, updates bullet with [slug] cross-refs if relevant.", "created_at": "2026-02-20T08:45:42.234109+00:00"}
+{"id": "b-3859cdb9", "type": "fact", "text": "/notes skill: lists daily notes nodes (notes-YYYY-MM-DD). Filters: empty=today, date, yesterday, week/7d, all, or search query. Uses kg nodes 'notes-*' + kg show.", "created_at": "2026-02-20T08:45:42.897831+00:00"}

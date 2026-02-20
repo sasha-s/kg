@@ -1128,6 +1128,21 @@ def status() -> None:
     vs_val = vs_status if vs_status != "stopped" else "[dim]stopped — run `kg start`[/dim]"
     table.add_row("Vectors", vs_val)
 
+    import os as _os
+    emb_model = cfg.embeddings.model
+    if emb_model.lower().startswith("gemini:"):
+        has_key = bool(_os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY"))
+        if has_key:
+            table.add_row("  Embeddings", f"{emb_model}")
+        else:
+            table.add_row(
+                "  Embeddings",
+                f"[red]⚠ {emb_model} — no GEMINI_API_KEY found[/red]\n"
+                '[dim]  set key, or use local: model = "fastembed:BAAI/bge-small-en-v1.5"[/dim]',
+            )
+    else:
+        table.add_row("  Embeddings", f"{emb_model}")
+
     table.add_row("MCP", mcp_health(cfg))
 
     # --- Hooks ---

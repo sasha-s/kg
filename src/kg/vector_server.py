@@ -332,6 +332,21 @@ def run_vector_server(cfg: KGConfig) -> None:  # pyright: ignore[reportUndefined
         msg = f"Expected KGConfig, got {type(cfg)}"
         raise TypeError(msg)
 
+    # Validate API key before starting — fail fast rather than silently skip
+    import os
+    model = cfg.embeddings.model
+    if model.lower().startswith("gemini:"):
+        if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+            print(
+                f"ERROR: embeddings.model={model!r} requires GEMINI_API_KEY or GOOGLE_API_KEY env var.\n"
+                "Set the key or switch to local embeddings in kg.toml:\n"
+                "  [embeddings]\n"
+                '  model = "fastembed:BAAI/bge-small-en-v1.5"  # no API key needed, pip install fastembed',
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+
     cache_dir = cfg.index_dir / "embedding_cache"
     _embedder = get_embedder(cfg.embeddings.model, cache_dir)
 

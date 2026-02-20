@@ -2,5 +2,12 @@
   "token_budget": 14938.0,
   "last_reviewed": "",
   "last_bullet_checkpoint": 0,
-  "bullets": {}
+  "bullets": {
+    "b-ce230567": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-20T08:45:14.591964+00:00"
+    }
+  }
 }

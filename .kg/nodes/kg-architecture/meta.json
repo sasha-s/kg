@@ -2,16 +2,16 @@
   "token_budget": 1451.0,
   "bullets": {
     "b-1dab7d6b": {
-      "useful": 3,
+      "useful": 4,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-20T08:39:13.622049+00:00"
+      "updated_at": "2026-02-20T08:45:14.591119+00:00"
     },
     "b-1792b87b": {
-      "useful": 3,
+      "useful": 4,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-20T08:39:13.622865+00:00"
+      "updated_at": "2026-02-20T08:45:14.591628+00:00"
     }
   }
 }

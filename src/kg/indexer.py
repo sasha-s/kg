@@ -178,7 +178,7 @@ def _embed_node(slug: str, node: FileNode, cfg: KGConfig, conn: sqlite3.Connecti
     if not text.strip():
         return
 
-    with contextlib.suppress(Exception):
+    try:
         vectors = embed([text], cfg, task_type="doc")
         if not vectors:
             return
@@ -198,6 +198,9 @@ def _embed_node(slug: str, node: FileNode, cfg: KGConfig, conn: sqlite3.Connecti
             )
             req.add_header("Content-Type", "application/json")
             _urllib.urlopen(req, timeout=1)  # noqa: S310
+    except Exception as exc:
+        import sys
+        print(f"kg: WARNING: embedding failed for [{slug}]: {exc}", file=sys.stderr, flush=True)
 
 
 def index_node(slug: str, *, nodes_dir: Path, db_path: Path, cfg: KGConfig | None = None) -> None:
