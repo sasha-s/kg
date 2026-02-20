@@ -38,6 +38,11 @@ def _get_conn(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _get_conn_readonly(db_path: Path) -> sqlite3.Connection:
+    """Open db read-only — no write lock, safe to call while watcher is running."""
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
 def _conn_for(cfg: KGConfig | None, db_path: Path) -> sqlite3.Connection:
     """Return a DB connection: Turso if cfg.use_turso, else local SQLite."""
     if cfg is not None and cfg.use_turso:
@@ -377,10 +382,16 @@ def get_calibration(key: str, db_path: Path, cfg: KGConfig | None = None) -> tup
 
 
 def get_calibration_status(db_path: Path, cfg: KGConfig | None = None) -> dict | None:
-    """Return calibration info for status display, or None if never calibrated."""
-    if cfg is None and not db_path.exists():
+    """Return calibration info for status display, or None if never calibrated.
+
+    Uses a read-only connection — safe to call while watcher is running.
+    """
+    if not db_path.exists():
         return None
-    conn = _conn_for(cfg, db_path)
+    if cfg is not None and cfg.use_turso:
+        conn = _conn_for(cfg, db_path)
+    else:
+        conn = _get_conn_readonly(db_path)
     try:
         row = conn.execute(
             "SELECT bullet_count, updated_at FROM calibration WHERE key = 'fts'"

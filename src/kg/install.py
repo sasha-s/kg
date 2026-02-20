@@ -15,12 +15,15 @@ if TYPE_CHECKING:
     from kg.config import KGConfig
 
 _HOOK_COMMAND = "python -m kg.hooks.session_context"
+_STOP_HOOK_COMMAND = "python -m kg.hooks.stop"
 _MCP_SERVER_NAME = "kg"
+_KG_HOOK_COMMANDS = {_HOOK_COMMAND, _STOP_HOOK_COMMAND}
 
 
 # ---------------------------------------------------------------------------
 # MCP registration via `claude mcp add`
 # ---------------------------------------------------------------------------
+
 
 def ensure_mcp_registered(scope: str = "user") -> tuple[bool, str]:
     """Register `kg serve` as an MCP server. Idempotent.
@@ -43,7 +46,10 @@ def ensure_mcp_registered(scope: str = "user") -> tuple[bool, str]:
     # Register
     kg_bin = shutil.which("kg")
     if kg_bin is None:
-        return False, "`kg` not found on PATH — install with `pip install kg` or `uv tool install kg`"
+        return (
+            False,
+            "`kg` not found on PATH — install with `pip install kg` or `uv tool install kg`",
+        )
 
     result = subprocess.run(
         ["claude", "mcp", "add", "--scope", scope, _MCP_SERVER_NAME, "--", kg_bin, "serve"],
@@ -59,6 +65,7 @@ def ensure_mcp_registered(scope: str = "user") -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Hook installation into ~/.claude/settings.json
 # ---------------------------------------------------------------------------
+
 
 def _claude_settings_path() -> Path:
     return Path.home() / ".claude" / "settings.json"
@@ -102,6 +109,7 @@ def ensure_hook_installed() -> tuple[bool, str]:
 # Health check
 # ---------------------------------------------------------------------------
 
+
 def mcp_health(_cfg: KGConfig) -> str:
     """Quick health string."""
     if not shutil.which("claude"):
@@ -126,3 +134,44 @@ def hook_status() -> str:
             if h.get("command") == _HOOK_COMMAND:
                 return "installed"
     return "not installed — run `kg start` to install"
+
+
+def ensure_stop_hook_installed() -> tuple[bool, str]:
+    """Merge stop hook into ~/.claude/settings.json under Stop event. Idempotent."""
+    path = _claude_settings_path()
+    settings = _load_settings(path)
+
+    hooks_section = settings.setdefault("hooks", {})
+    stop_list = hooks_section.setdefault("Stop", [])
+
+    for entry in stop_list:
+        for h in entry.get("hooks", []):
+            if h.get("command") == _STOP_HOOK_COMMAND:
+                return True, "stop hook already installed"
+
+    stop_list.append({"hooks": [{"type": "command", "command": _STOP_HOOK_COMMAND}]})
+    _save_settings(path, settings)
+    return True, f"stop hook installed in {path}"
+
+
+def list_all_hooks(settings_path: Path | None = None) -> list[dict[str, Any]]:
+    """Return all hooks from ~/.claude/settings.json as a flat list.
+
+    Each entry: {"event": str, "type": str, "command": str, "kg": bool}
+    """
+    path = settings_path or _claude_settings_path()
+    settings = _load_settings(path)
+    result = []
+    for event, entries in settings.get("hooks", {}).items():
+        for entry in entries:
+            for h in entry.get("hooks", []):
+                cmd = h.get("command", "")
+                result.append(
+                    {
+                        "event": event,
+                        "type": h.get("type", "command"),
+                        "command": cmd,
+                        "kg": cmd in _KG_HOOK_COMMANDS,
+                    }
+                )
+    return result

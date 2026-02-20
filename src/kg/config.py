@@ -62,29 +62,51 @@ _GITIGNORE_CONTENT = "index/\n"
 
 # Default file patterns for [[sources]]
 _DEFAULT_INCLUDE = [
-    "**/*.py", "**/*.md", "**/*.txt", "**/*.rst",
-    "**/*.toml", "**/*.yaml", "**/*.yml",
-    "**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx",
-    "**/*.go", "**/*.rs", "**/*.java",
-    "**/*.c", "**/*.h", "**/*.cpp", "**/*.hpp",
-    "**/*.sql", "**/*.sh",
-    "**/Dockerfile", "**/Makefile",
+    "**/*.py",
+    "**/*.md",
+    "**/*.txt",
+    "**/*.rst",
+    "**/*.toml",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.js",
+    "**/*.ts",
+    "**/*.jsx",
+    "**/*.tsx",
+    "**/*.go",
+    "**/*.rs",
+    "**/*.java",
+    "**/*.c",
+    "**/*.h",
+    "**/*.cpp",
+    "**/*.hpp",
+    "**/*.sql",
+    "**/*.sh",
+    "**/Dockerfile",
+    "**/Makefile",
 ]
 _DEFAULT_EXCLUDE = [
-    ".kg/**", "**/.git/**", "**/__pycache__/**",
-    "**/*.lock", "**/node_modules/**", "**/dist/**", "**/build/**",
-    "**/*.min.js", "**/*.min.css",
+    ".kg/**",
+    "**/.git/**",
+    "**/__pycache__/**",
+    "**/*.lock",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.min.js",
+    "**/*.min.css",
 ]
 
 
 @dataclass
 class SourceConfig:
     """A [[sources]] entry in kg.toml."""
-    path: str                               # relative to kg root
+
+    path: str  # relative to kg root
     name: str = ""
     include: list[str] = field(default_factory=lambda: list(_DEFAULT_INCLUDE))
     exclude: list[str] = field(default_factory=lambda: list(_DEFAULT_EXCLUDE))
-    use_git: bool = True                    # prefer git ls-files (respects .gitignore)
+    use_git: bool = True  # prefer git ls-files (respects .gitignore)
     max_size_kb: int = 512
 
     @property
@@ -100,7 +122,7 @@ class SourceConfig:
 
 @dataclass
 class ReviewConfig:
-    budget_threshold: float = 3000.0   # credits-per-bullet before flagging for review
+    budget_threshold: float = 3000.0  # credits-per-bullet before flagging for review
 
 
 @dataclass
@@ -110,7 +132,7 @@ class EmbeddingsConfig:
 
 @dataclass
 class DatabaseConfig:
-    url: str = ""    # libsql://... for Turso, empty = local SQLite
+    url: str = ""  # libsql://... for Turso, empty = local SQLite
     token: str = ""  # JWT auth token
 
 
@@ -129,14 +151,19 @@ class SearchConfig:
     dual_match_bonus: float = 0.1
     use_reranker: bool = True
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
-    auto_calibrate_threshold: float = 0.05   # fraction of bullets changed to trigger recal
+    auto_calibrate_threshold: float = 0.05  # fraction of bullets changed to trigger recal
+
+
+@dataclass
+class HooksConfig:
+    stop: bool = True  # enable Stop hook: prompts Claude to process fleeting notes at session end
 
 
 @dataclass
 class KGConfig:
     """Resolved configuration for a knowledge graph project."""
 
-    root: Path                      # directory that contains kg.toml
+    root: Path  # directory that contains kg.toml
     name: str = ""
     nodes_dir: Path = field(default_factory=Path)
     index_dir: Path = field(default_factory=Path)
@@ -146,6 +173,7 @@ class KGConfig:
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    hooks: HooksConfig = field(default_factory=HooksConfig)
 
     @property
     def db_path(self) -> Path:
@@ -197,6 +225,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
     env = _load_env(root_path)
     # Inject API keys into os.environ so embedder/clients can find them
     import os as _os
+
     for _key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
         if _key in env:
             _os.environ.setdefault(_key, env[_key])
@@ -212,6 +241,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
     db_section = raw.get("database", {})
     srv_section = raw.get("server", {})
     srch_section = raw.get("search", {})
+    hooks_section = raw.get("hooks", {})
 
     sources: list[SourceConfig] = []
     for s in raw.get("sources", []):
@@ -259,6 +289,9 @@ def load_config(root: Path | str | None = None) -> KGConfig:
             use_reranker=bool(srch_section.get("use_reranker", True)),
             reranker_model=srch_section.get("reranker_model", "Xenova/ms-marco-MiniLM-L-6-v2"),
             auto_calibrate_threshold=float(srch_section.get("auto_calibrate_threshold", 0.05)),
+        ),
+        hooks=HooksConfig(
+            stop=bool(hooks_section.get("stop", True)),
         ),
     )
 
@@ -317,6 +350,14 @@ name = "{project_name}"
 # use_reranker = true
 # reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
 # auto_calibrate_threshold = 0.05   # recalibrate when this fraction of bullets changes
+
+[hooks]
+# Stop hook: fires after each Claude response.
+# If the session has fleeting notes (_fleeting-<session_id>) or nodes needing review,
+# Claude is asked to process them before stopping — promoting useful facts to permanent
+# nodes, discarding noise, and reviewing stale nodes.
+# Set false to disable (Claude stops without the wrap-up prompt).
+# stop = true
 """
     config_path.write_text(content)
     return config_path

@@ -75,11 +75,11 @@ def _tool_defs() -> list[dict[str, Any]]:
         },
         {
             "name": "memory_review",
-            "description": "List nodes ordered by accumulated token budget — these need examination and maintenance.",
+            "description": "List nodes ordered by credits-per-bullet — these need examination and maintenance.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "threshold": {"type": "number", "default": 500, "description": "Min credits to list"},
+                    "threshold": {"type": "number", "default": 3000, "description": "Credits-per-bullet threshold (nodes above this are listed)"},
                     "limit": {"type": "integer", "default": 20},
                 },
             },
@@ -136,6 +136,7 @@ class KGServer:
             cfg=self._cfg,
             max_tokens=int(args.get("max_tokens", 1000)),
             limit=int(args.get("limit", 20)),
+            session_id=args.get("session_id") or None,
             review_threshold=self._cfg.review.budget_threshold,
         )
         if not result.nodes:

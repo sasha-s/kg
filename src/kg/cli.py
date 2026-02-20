@@ -33,7 +33,13 @@ from kg.daemon import (
 from kg.db import get_conn as _get_db_conn
 from kg.file_indexer import collect_files, index_source
 from kg.indexer import calibrate, get_calibration_status, index_node, rebuild_all, search_fts
-from kg.install import ensure_hook_installed, ensure_mcp_registered, hook_status, mcp_health
+from kg.install import (
+    ensure_hook_installed,
+    ensure_mcp_registered,
+    ensure_stop_hook_installed,
+    list_all_hooks,
+    mcp_health,
+)
 from kg.mcp import run_server
 from kg.reader import FileStore
 from kg.watcher import run_from_config
@@ -41,6 +47,7 @@ from kg.watcher import run_from_config
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_cfg() -> KGConfig:
     try:
@@ -53,6 +60,7 @@ def _load_cfg() -> KGConfig:
 # Root group
 # ---------------------------------------------------------------------------
 
+
 @click.group()
 @click.version_option(package_name="kg")
 def cli() -> None:
@@ -62,6 +70,7 @@ def cli() -> None:
 # ---------------------------------------------------------------------------
 # kg init
 # ---------------------------------------------------------------------------
+
 
 @cli.command()
 @click.argument("name", required=False)
@@ -92,6 +101,7 @@ def init(name: str | None, root: str) -> None:
 # kg reindex / kg upgrade
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 def reindex() -> None:
     """Rebuild SQLite index from all node.jsonl files."""
@@ -111,7 +121,9 @@ def upgrade() -> None:
 
 
 @cli.command()
-@click.option("--sample-size", default=200, show_default=True, help="Bullets to sample for calibration")
+@click.option(
+    "--sample-size", default=200, show_default=True, help="Bullets to sample for calibration"
+)
 def calibrate_cmd(sample_size: int) -> None:
     """Calibrate FTS and vector search score quantiles.
 
@@ -151,7 +163,9 @@ BULLET_TYPES = ["fact", "gotcha", "decision", "task", "note", "success", "failur
 @cli.command()
 @click.argument("slug")
 @click.argument("text")
-@click.option("--type", "bullet_type", default="fact", type=click.Choice(BULLET_TYPES), show_default=True)
+@click.option(
+    "--type", "bullet_type", default="fact", type=click.Choice(BULLET_TYPES), show_default=True
+)
 @click.option("--status", default=None, type=click.Choice(["pending", "completed", "archived"]))
 def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
     """Add a bullet to a node (auto-creates node if missing)."""
@@ -165,6 +179,7 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
 # ---------------------------------------------------------------------------
 # kg show
 # ---------------------------------------------------------------------------
+
 
 def _show_backlinks(slug: str, cfg: KGConfig, query: str | None = None, limit: int = 10) -> None:
     """Print bullets from other nodes that reference [slug].
@@ -234,12 +249,24 @@ def _show_links_to(slug: str, cfg: KGConfig, query: str | None = None, limit: in
 
 @cli.command()
 @click.argument("slug")
-@click.option("--query", "-q", default=None, help="Rank bullets and links by relevance to this query")
+@click.option(
+    "--query", "-q", default=None, help="Rank bullets and links by relevance to this query"
+)
 @click.option("--limit", "-l", default=10, show_default=True, help="Max bullets to show (0 = all)")
-@click.option("--offset", "-o", default=0, show_default=True, help="Skip first N bullets (for pagination, ignored with -q)")
-@click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
+@click.option(
+    "--offset",
+    "-o",
+    default=0,
+    show_default=True,
+    help="Skip first N bullets (for pagination, ignored with -q)",
+)
+@click.option(
+    "--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)"
+)
 @click.option("--no-backlinks", is_flag=True, help="Skip backlinks and links sections")
-def show(slug: str, query: str | None, limit: int, offset: int, max_width: int, no_backlinks: bool) -> None:
+def show(
+    slug: str, query: str | None, limit: int, offset: int, max_width: int, no_backlinks: bool
+) -> None:
     """Show bullets for a node.
 
     \b
@@ -264,19 +291,31 @@ def show(slug: str, query: str | None, limit: int, offset: int, max_width: int, 
         page = live if limit == 0 else live[:limit]
         ranked_label = f'  ranked by "{query}"'
     else:
-        page = live[offset:] if limit == 0 else live[offset:offset + limit]
+        page = live[offset:] if limit == 0 else live[offset : offset + limit]
         ranked_label = ""
 
     shown = len(page)
     budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
     created = f"  created {node.created_at[:10]}" if node.created_at else ""
     if query:
-        page_info = f"  [top {shown} of {total}{ranked_label}]" if shown < total else f"  [{total} total{ranked_label}]"
+        page_info = (
+            f"  [top {shown} of {total}{ranked_label}]"
+            if shown < total
+            else f"  [{total} total{ranked_label}]"
+        )
     else:
-        page_info = f"  [{offset + 1}-{offset + shown} of {total}]" if (offset or (limit and shown < total)) else f"  [{total} total]" if limit == 0 else ""
+        page_info = (
+            f"  [{offset + 1}-{offset + shown} of {total}]"
+            if (offset or (limit and shown < total))
+            else f"  [{total} total]"
+            if limit == 0
+            else ""
+        )
     threshold = cfg.review.budget_threshold
     hint = node.review_hint(threshold=threshold, bullet_count=total)
-    click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{total} bullets{budget_info}{created}{page_info}")
+    click.echo(
+        f"# {node.title}  [{node.slug}]  type={node.type}  ●{total} bullets{budget_info}{created}{page_info}"
+    )
     if hint:
         bar = "─" * 60
         click.echo(bar)
@@ -301,10 +340,16 @@ def show(slug: str, query: str | None, limit: int, offset: int, max_width: int, 
 # kg review
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("slug", required=False)
 @click.option("--limit", "-n", default=20, show_default=True)
-@click.option("--threshold", default=None, type=float, help="Min token_budget to list (default: from kg.toml [review])")
+@click.option(
+    "--threshold",
+    default=None,
+    type=float,
+    help="Min token_budget to list (default: from kg.toml [review])",
+)
 def review(slug: str | None, limit: int, threshold: float | None) -> None:
     """List nodes needing review, or mark a node as reviewed.
 
@@ -333,35 +378,63 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
     store = FileStore(cfg.nodes_dir)
     candidates = sorted(
         (
-            n for n in store.iter_nodes()
-            if not n.slug.startswith("_") and n.needs_review(effective_threshold, len(n.live_bullets))
+            n
+            for n in store.iter_nodes()
+            if not n.slug.startswith("_")
+            and n.needs_review(effective_threshold, len(n.live_bullets))
         ),
         key=lambda n: n.credits_per_bullet(len(n.live_bullets)),
         reverse=True,
     )[:limit]
     if not candidates:
-        click.echo(f"No nodes above {int(effective_threshold)} credits/bullet — graph looks healthy.")
+        click.echo(
+            f"No nodes above {int(effective_threshold)} credits/bullet — graph looks healthy."
+        )
         return
     click.echo(f"{'Cr/bullet':>9}  {'Credits':>8}  {'Bullets':>7}  Node")
     click.echo("-" * 60)
     for n in candidates:
         live = len(n.live_bullets)
         reviewed = f"  last reviewed {n.last_reviewed[:10]}" if n.last_reviewed else ""
-        click.echo(f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  [{n.slug}] {n.title}{reviewed}")
+        click.echo(
+            f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  [{n.slug}] {n.title}{reviewed}"
+        )
 
 
 # ---------------------------------------------------------------------------
 # kg search
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("query", required=False)
-@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
-@click.option("--rerank-query", "-q", "rerank_query", default=None, help="Rerank results with this query (defaults to search query)")
-@click.option("--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)")
+@click.option(
+    "--query-file",
+    "-Q",
+    default=None,
+    type=click.Path(exists=True),
+    help="Read query from file (avoids shell escaping)",
+)
+@click.option(
+    "--rerank-query",
+    "-q",
+    "rerank_query",
+    default=None,
+    help="Rerank results with this query (defaults to search query)",
+)
+@click.option(
+    "--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)"
+)
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
-def search(query: str | None, query_file: str | None, rerank_query: str | None, session: str | None, limit: int, flat: bool) -> None:  # noqa: ARG001
+def search(
+    query: str | None,
+    query_file: str | None,
+    rerank_query: str | None,  # noqa: ARG001
+    session: str | None,  # noqa: ARG001
+    limit: int,
+    flat: bool,
+) -> None:
     """FTS5 search over bullets."""
     if query_file:
         query = Path(query_file).read_text().strip()
@@ -408,6 +481,7 @@ def search(query: str | None, query_file: str | None, rerank_query: str | None, 
 # kg context
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("query", required=False)
 @click.option("--compact", "-c", is_flag=True, help="Compact output (default)")
@@ -415,7 +489,13 @@ def search(query: str | None, query_file: str | None, rerank_query: str | None, 
 @click.option("--max-tokens", default=1000, show_default=True)
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--query-file", "-Q", default=None, type=click.Path(exists=True))
-@click.option("--rerank-query", "-q", "rerank_query", default=None, help="Rerank results with this query (defaults to search query)")
+@click.option(
+    "--rerank-query",
+    "-q",
+    "rerank_query",
+    default=None,
+    help="Rerank results with this query (defaults to search query)",
+)
 def context(
     query: str | None,
     compact: bool,  # noqa: ARG001  (reserved for future non-compact mode)
@@ -455,10 +535,15 @@ def context(
 # kg index
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.argument("path", required=False)
-@click.option("--source", "source_name", default=None, help="Index only this named [[sources]] entry")
-@click.option("--include", "-p", multiple=True, help="File patterns (e.g. '**/*.py'). One-off only.")
+@click.option(
+    "--source", "source_name", default=None, help="Index only this named [[sources]] entry"
+)
+@click.option(
+    "--include", "-p", multiple=True, help="File patterns (e.g. '**/*.py'). One-off only."
+)
 @click.option("--exclude", "-x", multiple=True, help="Exclude patterns. One-off only.")
 @click.option("--no-git", is_flag=True, help="Don't use git ls-files")
 @click.option("--max-size", default=512, show_default=True, help="Max file size in KB")
@@ -497,7 +582,9 @@ def index(
         src = SourceConfig(
             path=path,
             name="",
-            include=list(include) if include else list(cfg.sources[0].include if cfg.sources else ["**/*"]),
+            include=list(include)
+            if include
+            else list(cfg.sources[0].include if cfg.sources else ["**/*"]),
             exclude=list(exclude) if exclude else [],
             use_git=not no_git,
             max_size_kb=max_size,
@@ -541,6 +628,7 @@ def index(
 # kg bootstrap
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.option("--overwrite", is_flag=True, help="Re-install even if pattern nodes already exist")
 def bootstrap(overwrite: bool) -> None:
@@ -557,12 +645,14 @@ def bootstrap(overwrite: bool) -> None:
 # kg vector-server
 # ---------------------------------------------------------------------------
 
+
 @cli.command("vector-server")
 @click.option("--root", default=None, help="Override project root")
 def vector_server_cmd(root: str | None) -> None:
     """Start vector server in foreground (for debugging)."""
     import subprocess
     import sys
+
     root_path = Path(root).resolve() if root else Path.cwd()
     subprocess.run([sys.executable, "-m", "kg.vector_server", str(root_path)], check=False)
 
@@ -571,8 +661,15 @@ def vector_server_cmd(root: str | None) -> None:
 # kg start / status / stop
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
-@click.option("--scope", default="user", type=click.Choice(["user", "local", "project"]), show_default=True, help="Claude MCP scope")
+@click.option(
+    "--scope",
+    default="user",
+    type=click.Choice(["user", "local", "project"]),
+    show_default=True,
+    help="Claude MCP scope",
+)
 def start(scope: str) -> None:
     """Ensure everything is running: index, watcher, MCP server, hooks."""
     cfg = _load_cfg()
@@ -617,11 +714,18 @@ def start(scope: str) -> None:
     marker = "✓" if ok else "✗"
     click.echo(f"  {marker} {msg}")
 
-    # 5. Hook
-    click.echo("Installing session_context hook...")
+    # 5. Hooks
+    click.echo("Installing hooks...")
     ok, msg = ensure_hook_installed()
     marker = "✓" if ok else "✗"
-    click.echo(f"  {marker} {msg}")
+    click.echo(f"  {marker} session_context (UserPromptSubmit): {msg}")
+
+    if cfg.hooks.stop:
+        ok, msg = ensure_stop_hook_installed()
+        marker = "✓" if ok else "✗"
+        click.echo(f"  {marker} stop (Stop): {msg}")
+    else:
+        click.echo("  - stop hook disabled  (set [hooks] stop = true in kg.toml to re-enable)")
 
     click.echo("\nDone. Run `kg status` to verify.")
 
@@ -640,8 +744,7 @@ def status() -> None:
         n_nodes = len(_all)
         n_bullets = sum(len(n.live_bullets) for n in _all)
         review_count = sum(
-            1 for n in _all
-            if n.needs_review(cfg.review.budget_threshold, len(n.live_bullets))
+            1 for n in _all if n.needs_review(cfg.review.budget_threshold, len(n.live_bullets))
         )
         review_hint = f"  ⚠ {review_count} need review" if review_count else ""
         click.echo(f"Nodes     : {n_nodes} nodes, {n_bullets} bullets{review_hint}")
@@ -685,7 +788,48 @@ def status() -> None:
     vs_hint = "  — run `kg start` to start" if vs_status == "stopped" else ""
     click.echo(f"Vectors   : {vs_status}{vs_hint}")
     click.echo(f"MCP       : {mcp_health(cfg)}")
-    click.echo(f"Hook      : {hook_status()}")
+
+    # Hooks — installed hooks + kg hooks not yet installed
+    from kg.install import _HOOK_COMMAND, _STOP_HOOK_COMMAND, _claude_settings_path
+
+    hooks = list_all_hooks()
+    settings_path = _claude_settings_path()
+    installed_commands = {h["command"] for h in hooks}
+
+    # Expected kg hooks based on config
+    kg_expected: list[tuple[str, str, bool]] = [
+        ("UserPromptSubmit", _HOOK_COMMAND, True),  # always expected
+    ]
+    if cfg.hooks.stop:
+        kg_expected.append(("Stop", _STOP_HOOK_COMMAND, True))
+
+    all_lines: list[str] = []
+    for h in hooks:
+        kg_marker = " [kg]" if h["kg"] else ""
+        all_lines.append(f"  {h['event']}  {h['command']}{kg_marker}")
+    for event, cmd, _ in kg_expected:
+        if cmd not in installed_commands:
+            all_lines.append(f"  {event}  {cmd} [kg] ✗ not installed — run `kg start`")
+
+    n_installed = len(hooks)
+    if not all_lines:
+        click.echo(f"Hooks     : none  ({settings_path})")
+    else:
+        click.echo(f"Hooks     : {n_installed} installed  ({settings_path})")
+        for line in all_lines:
+            click.echo(f"           {line}")
+
+    # Sources — what's being indexed beyond nodes/
+    if cfg.sources:
+        click.echo(f"Sources   : {len(cfg.sources)} source(s)")
+        for src in cfg.sources:
+            name_part = f"  [{src.name}]" if src.name else ""
+            includes = ", ".join(src.include[:3])
+            if len(src.include) > 3:
+                includes += f", +{len(src.include) - 3} more"
+            click.echo(f"            {src.abs_path}{name_part}  ({includes})")
+    else:
+        click.echo("Sources   : none  (add [[sources]] to kg.toml to index files)")
 
 
 @cli.command()
@@ -702,6 +846,7 @@ def stop() -> None:
 # kg serve
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
 @click.option("--root", default=None, help="Override project root (default: auto-detect from cwd)")
 def serve(root: str | None) -> None:
@@ -714,9 +859,17 @@ def serve(root: str | None) -> None:
 # kg web
 # ---------------------------------------------------------------------------
 
+
 @cli.command()
-@click.option("--host", "-b", default=None, help="Bind address (default: kg.toml [server].web_host or 127.0.0.1)")
-@click.option("--port", "-p", default=None, type=int, help="Port (default: kg.toml [server].web_port or 7345)")
+@click.option(
+    "--host",
+    "-b",
+    default=None,
+    help="Bind address (default: kg.toml [server].web_host or 127.0.0.1)",
+)
+@click.option(
+    "--port", "-p", default=None, type=int, help="Port (default: kg.toml [server].web_port or 7345)"
+)
 def web(host: str | None, port: int | None) -> None:
     """Start local web viewer with FTS+vector search.
 
@@ -727,12 +880,14 @@ def web(host: str | None, port: int | None) -> None:
     """
     cfg = _load_cfg()
     from kg.web import serve as _web_serve
+
     _web_serve(cfg, host=host or cfg.server.web_host, port=port or cfg.server.web_port)
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     cli(standalone_mode=True)
