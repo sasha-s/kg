@@ -144,7 +144,8 @@ def show(ctx: click.Context, slug: str) -> None:
 
     live = node.live_bullets
     budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
-    hint = node.review_hint(bullet_count=len(live))
+    threshold = cfg.review.budget_threshold
+    hint = node.review_hint(threshold=threshold, bullet_count=len(live))
     click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}")
     if hint:
         bar = "─" * 60
@@ -165,9 +166,9 @@ def show(ctx: click.Context, slug: str) -> None:
 @cli.command()
 @click.argument("slug", required=False)
 @click.option("--limit", "-n", default=20, show_default=True)
-@click.option("--threshold", default=500.0, show_default=True, help="Min token_budget to list")
+@click.option("--threshold", default=None, type=float, help="Min token_budget to list (default: from kg.toml [review])")
 @click.pass_context
-def review(ctx: click.Context, slug: str | None, limit: int, threshold: float) -> None:
+def review(ctx: click.Context, slug: str | None, limit: int, threshold: float | None) -> None:
     """List nodes needing review, or mark a node as reviewed.
 
     \b
@@ -178,6 +179,7 @@ def review(ctx: click.Context, slug: str | None, limit: int, threshold: float) -
     from kg.reader import FileStore
 
     cfg = _load_cfg(ctx)
+    effective_threshold = threshold if threshold is not None else cfg.review.budget_threshold
 
     if slug:
         # Mark a specific node as reviewed
@@ -202,11 +204,11 @@ def review(ctx: click.Context, slug: str | None, limit: int, threshold: float) -
            WHERE token_budget >= ? AND type NOT LIKE '_%'
            ORDER BY token_budget DESC
            LIMIT ?""",
-        (threshold, limit),
+        (effective_threshold, limit),
     ).fetchall()
     conn.close()
     if not rows:
-        click.echo(f"No nodes above {int(threshold)} credits — graph looks healthy.")
+        click.echo(f"No nodes above {int(effective_threshold)} credits — graph looks healthy.")
         return
     click.echo(f"{'Credits':>8}  {'Bullets':>7}  Node")
     click.echo("-" * 50)
@@ -286,6 +288,7 @@ def context(
         nodes_dir=cfg.nodes_dir,
         max_tokens=max_tokens,
         limit=limit,
+        review_threshold=cfg.review.budget_threshold,
     )
 
     if not result.nodes:

@@ -75,14 +75,13 @@ class FileNode:
         """Bullets that have not been tombstoned."""
         return [b for b in self.bullets if not b.deleted]
 
-    @property
-    def needs_review(self) -> bool:
+    def needs_review(self, threshold: float = _REVIEW_BUDGET_THRESHOLD) -> bool:
         """True when token_budget exceeds threshold."""
-        return self.token_budget >= _REVIEW_BUDGET_THRESHOLD
+        return self.token_budget >= threshold
 
-    def review_hint(self, bullet_count: int | None = None) -> str | None:
+    def review_hint(self, threshold: float = _REVIEW_BUDGET_THRESHOLD, bullet_count: int | None = None) -> str | None:
         """Return inline TLC hint string, or None if not needed."""
-        if not self.needs_review:
+        if not self.needs_review(threshold):
             return None
         parts = [f"{int(self.token_budget)} credits"]
         if bullet_count is not None:

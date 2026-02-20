@@ -81,6 +81,7 @@ def build_context(
     session_id: str | None = None,
     seen_slugs: set[str] | None = None,
     update_budget: bool = True,
+    review_threshold: float = 500.0,
 ) -> PackedContext:
     """FTS search → group by node → pack into budget → return PackedContext.
 
@@ -135,7 +136,7 @@ def build_context(
             if not bl.startswith(_INTERNAL_PREFIX):
                 explore.add(bl)
 
-        hint = node.review_hint(bullet_count=len(live))
+        hint = node.review_hint(threshold=review_threshold, bullet_count=len(live))
 
         ctx_node = ContextNode(
             slug=slug,
@@ -147,6 +148,7 @@ def build_context(
             explore=sorted(explore - {n.slug for n in packed_nodes}),
             review_hint=hint,
         )
+
 
         estimated = len(ctx_node.format_compact())
         if total_chars + estimated > char_budget and packed_nodes:

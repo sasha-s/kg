@@ -130,6 +130,7 @@ class KGServer:
             nodes_dir=self._cfg.nodes_dir,
             max_tokens=int(args.get("max_tokens", 1000)),
             limit=int(args.get("limit", 20)),
+            review_threshold=self._cfg.review.budget_threshold,
         )
         if not result.nodes:
             return "(no results)"
@@ -154,7 +155,7 @@ class KGServer:
             return f"Node not found: {slug}"
         live = node.live_bullets
         budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
-        hint = node.review_hint(bullet_count=len(live))
+        hint = node.review_hint(threshold=self._cfg.review.budget_threshold, bullet_count=len(live))
         lines = [f"# {node.title} [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}"]
         if hint:
             bar = "─" * 60
@@ -183,7 +184,7 @@ class KGServer:
         import sqlite3
         if not self._cfg.db_path.exists():
             return "No index — run kg reindex first"
-        threshold = float(args.get("threshold", 500))
+        threshold = float(args.get("threshold", self._cfg.review.budget_threshold))
         limit = int(args.get("limit", 20))
         conn = sqlite3.connect(str(self._cfg.db_path))
         rows = conn.execute(

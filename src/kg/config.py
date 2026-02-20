@@ -85,6 +85,11 @@ class SourceConfig:
 
 
 @dataclass
+class ReviewConfig:
+    budget_threshold: float = 500.0   # chars served before flagging a node for review
+
+
+@dataclass
 class EmbeddingsConfig:
     model: str = "openai:text-embedding-3-small"
 
@@ -103,6 +108,7 @@ class KGConfig:
     nodes_dir: Path = field(default_factory=Path)
     index_dir: Path = field(default_factory=Path)
     sources: list[SourceConfig] = field(default_factory=list)
+    review: ReviewConfig = field(default_factory=ReviewConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
 
@@ -140,6 +146,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
     nodes_rel = kg_section.get("nodes_dir", _DEFAULT_NODES_DIR)
     index_rel = kg_section.get("index_dir", _DEFAULT_INDEX_DIR)
 
+    rev_section = raw.get("review", {})
     emb_section = raw.get("embeddings", {})
     srv_section = raw.get("server", {})
 
@@ -162,6 +169,9 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         nodes_dir=root_path / nodes_rel,
         index_dir=root_path / index_rel,
         sources=sources,
+        review=ReviewConfig(
+            budget_threshold=float(rev_section.get("budget_threshold", 500.0)),
+        ),
         embeddings=EmbeddingsConfig(
             model=emb_section.get("model", "openai:text-embedding-3-small"),
         ),
@@ -201,6 +211,9 @@ name = "{project_name}"
 # exclude = [".kg/**", "**/__pycache__/**"]
 # use_git = true      # use git ls-files to respect .gitignore
 # max_size_kb = 512
+
+# [review]
+# budget_threshold = 500   # chars served before flagging a node for review (default: 500)
 
 # [embeddings]
 # model = "openai:text-embedding-3-small"
