@@ -181,6 +181,35 @@ def _log(session_id: str, msg: str) -> None:
         pass
 
 
+def _find_session_cwd(session_id: str) -> Path | None:
+    """Find the working directory for a session by scanning Claude's project dirs.
+
+    Claude stores sessions as ~/.claude/projects/<encoded-path>/<session_id>.jsonl.
+    The encoded path uses the project root dir with '/' replaced by '-' (leading '-'
+    means leading '/'). We find the transcript file and decode the path.
+    """
+    projects_dir = Path.home() / ".claude" / "projects"
+    if not projects_dir.exists():
+        return None
+    for proj_dir in projects_dir.iterdir():
+        if not proj_dir.is_dir():
+            continue
+        if (proj_dir / f"{session_id}.jsonl").exists():
+            # Decode: leading '-' → leading '/', remaining '-' separated by '/'.
+            # e.g. '-workspace-kg' → '/workspace/kg', '-workspace' → '/workspace'
+            encoded = proj_dir.name
+            if encoded.startswith("-"):
+                # Split on '-' but only where they represent path separators.
+                # The encoding is: path.replace('/', '-') with a leading '-' for '/'.
+                # Reverse: replace all '-' with '/' then prepend nothing (already starts with /).
+                # BUT directory names may contain '-', so we can't blindly replace.
+                # The safest approach: turn '-' → '/' and check if the path exists.
+                candidate = Path(encoded.replace("-", "/"))
+                if candidate.is_dir():
+                    return candidate
+    return None
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -275,7 +304,9 @@ def main() -> None:
         del env[key]
     env[_KG_NO_STOP_HOOK] = "1"
 
-    run_cwd = cwd if cwd and Path(cwd).is_dir() else None
+    # Find the project dir that owns this session (may differ from current cwd
+    # when kg is a sub-project of the session's workspace).
+    session_cwd = _find_session_cwd(session_id) or (Path(cwd) if cwd and Path(cwd).is_dir() else None)
 
     try:
         log_fh = log_file.open("a")
@@ -286,9 +317,9 @@ def main() -> None:
             close_fds=True,
             start_new_session=True,
             env=env,
-            cwd=run_cwd,
+            cwd=str(session_cwd) if session_cwd else None,
         )
-        _log(session_id, f"spawned extraction (model=sonnet session={session_id[:12]} cwd={run_cwd})")
+        _log(session_id, f"spawned extraction (model=sonnet session={session_id[:12]} cwd={session_cwd})")
     except Exception as exc:
         _log(session_id, f"failed to spawn: {exc}")
 
