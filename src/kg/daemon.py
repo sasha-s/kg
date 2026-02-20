@@ -263,3 +263,38 @@ def stop_vector_server(cfg: KGConfig) -> str:
     except (ValueError, ProcessLookupError):
         pid_file.unlink(missing_ok=True)
         return "not running"
+
+
+def reload_watcher(cfg: KGConfig) -> str:
+    """Send SIGHUP to the running watcher to trigger a live config reload.
+
+    Returns a human-readable status message.
+    """
+    hup = getattr(signal, "SIGHUP", None)
+    if hup is None:
+        return "SIGHUP not available on this platform"
+
+    # PID-file watcher (background subprocess)
+    pid_file = _pid_file(cfg)
+    if _pid_running(pid_file):
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, hup)
+            return f"reloaded (pid {pid})"
+        except (ValueError, ProcessLookupError):
+            return "stale PID file — watcher not running"
+
+    # supervisord-managed watcher
+    if _supervisord_running(cfg):
+        conf = str(_supervisord_conf_path(cfg))
+        result = subprocess.run(
+            ["supervisorctl", "-c", conf, "signal", "HUP", _SUPERVISORD_PROGRAM],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "reloaded via supervisorctl"
+        return f"supervisorctl error: {result.stderr.strip()}"
+
+    return "watcher not running"

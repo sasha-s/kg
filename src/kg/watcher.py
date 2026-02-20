@@ -37,6 +37,22 @@ _POLL_INTERVAL = 30.0      # seconds between periodic full-source polls
 _INOTIFY_TIMEOUT_MS = 5000
 _CALIBRATE_INTERVAL = 300.0   # seconds between auto-calibration checks
 
+# ---------------------------------------------------------------------------
+# SIGHUP config reload
+# ---------------------------------------------------------------------------
+
+# Mutable container so signal handler and loop can share state without global.
+_reload_state: list[bool] = [False]  # [0] = reload_requested
+
+
+class _ReloadRequestedError(Exception):
+    """Raised from within a watcher loop to trigger a config reload."""
+
+
+def _handle_sighup(signum: int, frame: object) -> None:  # noqa: ARG001
+    _reload_state[0] = True
+    logger.info("SIGHUP received — config reload requested")
+
 
 # ---------------------------------------------------------------------------
 # Handlers
@@ -190,6 +206,9 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
             _auto_calibrate_if_stale(db_path, cfg)
             last_calibrate = now_cal
 
+        if _reload_state[0]:
+            raise _ReloadRequestedError
+
 
 # ---------------------------------------------------------------------------
 # Polling fallback
@@ -265,6 +284,9 @@ def watch_poll(
             _auto_calibrate_if_stale(db_path, cfg)
             last_calibrate = now_cal
 
+        if _reload_state[0]:
+            raise _ReloadRequestedError
+
         time.sleep(interval)
 
 
@@ -282,18 +304,30 @@ def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None, cfg: 
 
 
 def run_from_config(config_root: Path | None = None) -> None:
-    """Load kg.toml and start the watcher."""
-    cfg = load_config(config_root)
-    nodes_dir, db_path, sources = cfg.nodes_dir, cfg.db_path, [
-        {
-            "path": src.abs_path,
-            "name": src.name,
-            "max_size_kb": src.max_size_kb,
-            "config": src,
-        }
-        for src in cfg.sources
-    ]
-    run(nodes_dir, db_path, sources, cfg=cfg)
+    """Load kg.toml and start the watcher. Handles SIGHUP for live config reload."""
+    import signal as _signal
+
+    if hasattr(_signal, "SIGHUP"):
+        _signal.signal(_signal.SIGHUP, _handle_sighup)
+
+    while True:
+        _reload_state[0] = False
+        cfg = load_config(config_root)
+        nodes_dir, db_path = cfg.nodes_dir, cfg.db_path
+        sources = [
+            {
+                "path": src.abs_path,
+                "name": src.name,
+                "max_size_kb": src.max_size_kb,
+                "config": src,
+            }
+            for src in cfg.sources
+        ]
+        try:
+            run(nodes_dir, db_path, sources, cfg=cfg)
+            break  # run() loops forever normally; break only if it exits cleanly
+        except _ReloadRequestedError:
+            logger.info("Reloading config from %s", config_root or Path.cwd())
 
 
 if __name__ == "__main__":
