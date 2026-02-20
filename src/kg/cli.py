@@ -462,11 +462,11 @@ def status() -> None:
     if cfg.db_path.exists():
         conn = sqlite3.connect(str(cfg.db_path))
         row = conn.execute(
-            "SELECT COUNT(*), SUM(bullet_count) FROM nodes WHERE type NOT LIKE '_%'"
+            "SELECT COUNT(*), SUM(bullet_count) FROM nodes WHERE type NOT GLOB '_*'"
         ).fetchone()
         n_nodes, n_bullets = (row[0] or 0), (row[1] or 0)
         review_count = conn.execute(
-            "SELECT COUNT(*) FROM nodes WHERE token_budget >= ? AND type NOT LIKE '_%'",
+            "SELECT COUNT(*) FROM nodes WHERE token_budget >= ? AND type NOT GLOB '_*'",
             (cfg.review.budget_threshold,),
         ).fetchone()[0]
         conn.close()
@@ -487,7 +487,9 @@ def status() -> None:
         click.echo(f"Nodes     : {n_nodes} (no index — run `kg reindex`)")
         click.echo(f"Index     : {cfg.db_path}  (missing)")
 
-    click.echo(f"Watcher   : {watcher_status(cfg)}")
+    w_status = watcher_status(cfg)
+    w_hint = "  — run `kg start` to start" if w_status == "stopped" else ""
+    click.echo(f"Watcher   : {w_status}{w_hint}")
     click.echo(f"MCP       : {mcp_health(cfg)}")
     click.echo(f"Hook      : {hook_status()}")
 
