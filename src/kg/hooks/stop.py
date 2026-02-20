@@ -45,6 +45,9 @@ The kg graph is a Zettelkasten — atomic concept nodes (JSONL files) linked by 
 cross-references like [slug]. Your job: process fleeting notes from the session \
 and promote durable knowledge into this network.
 
+Available commands: kg add, kg show, kg nodes, kg search, kg context, kg review, \
+kg vote, kg update, kg delete, kg create.
+
 ---
 
 ## Step 0: Check fleeting notes + fill gaps
@@ -61,8 +64,8 @@ If it exists, read all bullets. Then scan the transcript above for discoveries N
 
 Add any missing captures:
 ```
-kg add _fleeting-<session_id[:12]> "missed: X causes Y"
-kg add _fleeting-<session_id[:12]> "confirmed: Z works because W" --type fact
+kg add _fleeting-<short_id> "missed: X causes Y"
+kg add _fleeting-<short_id> "confirmed: Z works because W" --type fact
 ```
 
 ---
@@ -74,8 +77,9 @@ For each distinct topic from the fleeting node (or transcript if no fleeting nod
 kg context -s <session_id> "topic from the session"
 kg context -s <session_id> "another topic"
 ```
-Pass `-s <session_id>` (the full session UUID given in your prompt) for session-aware scoring.
-Search every topic the session touched.
+Pass `-s <session_id>` (the full session UUID given in your prompt) for differential scoring
+(already-returned nodes are filtered out on subsequent calls, widening coverage).
+Search every topic the session touched. Use `kg nodes` to browse existing slugs for cross-links.
 
 After each `kg context` call, **vote on the bullets returned** based on whether they were
 actually useful for the session's work:
@@ -84,6 +88,7 @@ kg vote useful b-abc12345 b-def67890    # bullets that were accurate and relevan
 kg vote harmful b-11223344              # bullets that were wrong, misleading, or outdated
 ```
 Only vote on bullets you have genuine signal about from this session. Skip neutral ones.
+Use `kg update <id> "corrected text"` if a bullet is close but needs fixing.
 
 ---
 
@@ -91,12 +96,12 @@ Only vote on bullets you have genuine signal about from this session. Skip neutr
 
 For each fleeting bullet, decide:
 
-**Promote** (add to a concept node) if:
+**Promote** (add to a concept node + delete from fleeting) if:
 - Reusable beyond this session
 - No duplicate already exists on the target node
 - Would help someone working on this topic next week
 
-**Discard** (skip) if:
+**Delete** (remove from fleeting) if:
 - Purely transient: exact commands run, errors fixed in-session, step-by-step narrative
 - Wouldn't help future sessions
 
@@ -109,6 +114,11 @@ If so, the node is over-budget — call `kg review <slug>` after examining it to
 Adding bullets (node auto-creates if it doesn't exist):
 ```
 kg add <slug> "reusable insight" --type TYPE
+```
+
+After promoting or discarding a bullet, delete it from the fleeting node:
+```
+kg delete <bullet_id>
 ```
 
 Bullet types:
@@ -140,31 +150,31 @@ kg review <slug>
 
 ## Step 4: Record session anchor
 
-Add 2-4 summary bullets to `_fleeting-<session_id[:12]>` describing what this session was:
+Add 2-4 summary bullets to `_fleeting-<short_id>` describing what this session was:
 ```
-kg add _fleeting-<session_id[:12]> "intent: <one-line goal summary>" --type note
-kg add _fleeting-<session_id[:12]> "outcome: <what was done/decided/discovered>" --type note
+kg add _fleeting-<short_id> "intent: <one-line goal summary>" --type note
+kg add _fleeting-<short_id> "outcome: <what was done/decided/discovered>" --type note
 # Optional:
-kg add _fleeting-<session_id[:12]> "gotcha: <non-obvious issue>" --type gotcha
-kg add _fleeting-<session_id[:12]> "pending: <what still needs doing>" --type task --status pending
+kg add _fleeting-<short_id> "gotcha: <non-obvious issue>" --type gotcha
+kg add _fleeting-<short_id> "pending: <what still needs doing>" --type task --status pending
 ```
 
 Rules:
 - `intent:` and `outcome:` are always required
 - Keep to 2-4 bullets max — this is a navigation entry, not a full log
-- These anchor bullets STAY after cleanup
+- These anchor bullets are NOT deleted in Step 2 cleanup — they are the permanent record
 - Do NOT add bullets about the extraction process itself
 
 ---
 
 ## Checklist
 
-- [ ] Checked _fleeting-<session> for captures; filled any gaps
+- [ ] Checked _fleeting-<short_id> for captures; filled any gaps
 - [ ] Searched graph for every distinct topic touched
 - [ ] Voted on returned bullets (`kg vote useful/harmful <ids>`) where you have signal
-- [ ] Promoted worthy bullets to concept nodes (with [cross-refs])
+- [ ] Promoted worthy bullets to concept nodes (with [cross-refs]); deleted promoted/discarded from fleeting
 - [ ] Called `kg review <slug>` on any over-budget nodes (⚠)
-- [ ] Added session anchor (intent + outcome required)
+- [ ] Added session anchor (intent + outcome required, kept in fleeting)
 """
 
 
@@ -273,6 +283,7 @@ def main() -> None:
         "--allowedTools",
         "Bash(kg add *)",
         "Bash(kg show *)",
+        "Bash(kg nodes *)",
         "Bash(kg search *)",
         "Bash(kg context *)",
         "Bash(kg review *)",
