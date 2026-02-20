@@ -147,16 +147,18 @@ def show(ctx: click.Context, slug: str) -> None:
     hint = node.review_hint(bullet_count=len(live))
     click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}")
     if hint:
-        click.echo(f"  {hint}")
+        bar = "─" * 60
+        click.echo(bar)
+        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {len(live)} bullets")
+        click.echo("  1. Delete stale or wrong bullets")
+        click.echo("  2. Split if too large (one concept per node)")
+        click.echo("  3. Push insights to connected nodes")
+        click.echo(f"  4. Run `kg review {slug}` when done")
+        click.echo(bar)
     for b in live:
         prefix = f"({b.type}) " if b.type != "fact" else ""
-        vote_info = ""
-        if b.useful or b.harmful:
-            vote_info = f"  [+{b.useful}/-{b.harmful}]"
+        vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
         click.echo(f"  {prefix}{b.text}  ←{b.id}{vote_info}")
-
-    if hint:
-        click.echo(f"\n  Run `kg review {slug}` after examining to clear the budget.")
 
 
 # ---------------------------------------------------------------------------

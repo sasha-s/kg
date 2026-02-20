@@ -157,8 +157,17 @@ class KGServer:
         hint = node.review_hint(bullet_count=len(live))
         lines = [f"# {node.title} [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}"]
         if hint:
-            lines.append(f"  {hint}")
-            lines.append("  Call memory_mark_reviewed after examining and updating this node.")
+            bar = "─" * 60
+            lines += [
+                bar,
+                f"⚠ NEEDS REVIEW: {hint.lstrip('⚠ needs review (')}",
+                "  This node has been served heavily. Before continuing:",
+                "  1. Read all bullets below — delete stale/wrong ones",
+                "  2. Split if >15 bullets (one concept per node)",
+                "  3. Push insights to connected nodes via memory_add_bullet",
+                "  4. Call memory_mark_reviewed when done",
+                bar,
+            ]
         for b in live:
             prefix = f"({b.type}) " if b.type != "fact" else ""
             lines.append(f"- {prefix}{b.text}  ←{b.id}")
