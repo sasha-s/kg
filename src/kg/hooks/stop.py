@@ -158,6 +158,32 @@ Rules:
 """
 
 
+def _find_session_cwd(session_id: str) -> str | None:
+    """Find the cwd from the session transcript file.
+
+    claude stores transcripts at ~/.claude/projects/<cwd-hash>/<session_id>.jsonl.
+    The <cwd-hash> is not trivially reversible, so we search all project dirs
+    and read the cwd from the first line of the matching transcript.
+    """
+    projects_dir = Path.home() / ".claude" / "projects"
+    for project_dir in projects_dir.iterdir():
+        transcript = project_dir / f"{session_id}.jsonl"
+        if transcript.exists():
+            try:
+                with transcript.open() as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        entry = json.loads(line)
+                        cwd = entry.get("cwd")
+                        if cwd:
+                            return cwd
+            except Exception:  # noqa: S110
+                pass
+    return None
+
+
 def _log(session_id: str, msg: str) -> None:
     try:
         import datetime
@@ -188,12 +214,18 @@ def main() -> None:
     if not session_id:
         sys.exit(0)
 
+    # Find the session transcript to get the original cwd.
+    # claude --resume resolves sessions under ~/.claude/projects/<cwd-hash>/,
+    # which is derived from the cwd when the session was CREATED — not the
+    # hook event's cwd (which reflects the current working directory).
+    hook_cwd = data.get("cwd", "")
+    session_cwd = _find_session_cwd(session_id) or hook_cwd
+
     # Find kg config from cwd
-    cwd = data.get("cwd", "")
     try:
         from kg.config import load_config
 
-        cfg = load_config(Path(cwd) if cwd else None)
+        cfg = load_config(Path(session_cwd) if session_cwd else None)
     except Exception:
         sys.exit(0)
 
@@ -261,9 +293,8 @@ def main() -> None:
         del env[key]
     env[_KG_NO_STOP_HOOK] = "1"
 
-    # Must run from cwd so claude resolves the session path correctly
-    # (~/.claude/projects/<cwd-hash>/<session_id>.jsonl)
-    run_cwd = cwd if cwd and Path(cwd).is_dir() else None
+    # Must run from the session's original cwd so claude resolves the transcript
+    run_cwd = session_cwd if session_cwd and Path(session_cwd).is_dir() else None
 
     try:
         log_fh = log_file.open("a")
