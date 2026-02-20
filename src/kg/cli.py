@@ -232,6 +232,101 @@ def context(
 
 
 # ---------------------------------------------------------------------------
+# kg index
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.argument("path", required=False)
+@click.option("--source", "source_name", default=None, help="Index only this named [[sources]] entry")
+@click.option("--include", "-p", multiple=True, help="File patterns (e.g. '**/*.py'). One-off only.")
+@click.option("--exclude", "-x", multiple=True, help="Exclude patterns. One-off only.")
+@click.option("--no-git", is_flag=True, help="Don't use git ls-files")
+@click.option("--max-size", default=512, show_default=True, help="Max file size in KB")
+@click.option("--dry-run", is_flag=True)
+@click.option("--verbose", "-v", is_flag=True)
+@click.option("--watch", is_flag=True, help="Keep running: reindex on changes (uses inotify/poll)")
+@click.pass_context
+def index(
+    ctx: click.Context,
+    path: str | None,
+    source_name: str | None,
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+    no_git: bool,
+    max_size: int,
+    dry_run: bool,
+    verbose: bool,
+    watch: bool,
+) -> None:
+    """Index files for FTS search (no LLM extraction).
+
+    Examples:
+      kg index                     # index all [[sources]] from kg.toml
+      kg index src/ -p '**/*.py'   # one-off: index a directory
+      kg index --source workspace  # index a named [[sources]] entry
+      kg index --watch             # inotify watcher mode
+    """
+    from kg.config import SourceConfig
+    from kg.file_indexer import index_source
+
+    cfg = _load_cfg(ctx)
+    cfg.ensure_dirs()
+
+    if watch:
+        # Hand off to watcher daemon (blocks)
+        from kg.watcher import run_from_config
+        click.echo("Starting watcher (Ctrl+C to stop)...")
+        run_from_config(cfg.root)
+        return
+
+    # Build list of sources to index
+    if path:
+        # One-off source from CLI args
+        src = SourceConfig(
+            path=path,
+            name="",
+            include=list(include) if include else list(cfg.sources[0].include if cfg.sources else ["**/*"]),
+            exclude=list(exclude) if exclude else [],
+            use_git=not no_git,
+            max_size_kb=max_size,
+        ).resolve(cfg.root)
+        sources_to_index = [src]
+    elif source_name:
+        sources_to_index = [s for s in cfg.sources if s.name == source_name]
+        if not sources_to_index:
+            raise click.ClickException(f"No [[sources]] entry named '{source_name}'")
+    else:
+        sources_to_index = cfg.sources
+        if not sources_to_index:
+            raise click.ClickException(
+                "No [[sources]] in kg.toml. Add one or pass a PATH argument."
+            )
+
+    total: dict[str, int] = {"new": 0, "updated": 0, "unchanged": 0, "skipped": 0, "deleted": 0}
+
+    for src in sources_to_index:
+        label = src.name or str(src.path)
+        click.echo(f"Indexing: {label} ({src.abs_path})")
+
+        if dry_run:
+            from kg.file_indexer import collect_files
+            files = collect_files(src)
+            click.echo(f"  Would index {len(files)} files (dry run)")
+            continue
+
+        stats = index_source(src, db_path=cfg.db_path, verbose=verbose)
+        for k, v in stats.items():
+            total[k] += v
+
+        parts = [f"{v} {k}" for k, v in stats.items() if v]
+        click.echo(f"  {', '.join(parts)}")
+
+    if not dry_run and len(sources_to_index) > 1:
+        parts = [f"{v} {k}" for k, v in total.items() if v]
+        click.echo(f"Total: {', '.join(parts)}")
+
+
+# ---------------------------------------------------------------------------
 # kg bootstrap
 # ---------------------------------------------------------------------------
 
@@ -270,7 +365,16 @@ def start(ctx: click.Context, scope: str) -> None:
     n = rebuild_all(cfg.nodes_dir, cfg.db_path)
     click.echo(f"  ✓ Indexed {n} nodes")
 
-    # 2. Watcher
+    # 2. Index file sources
+    if cfg.sources:
+        click.echo(f"Indexing {len(cfg.sources)} file source(s)...")
+        from kg.file_indexer import index_source
+        for src in cfg.sources:
+            stats = index_source(src, db_path=cfg.db_path)
+            parts = [f"{v} {k}" for k, v in stats.items() if v]
+            click.echo(f"  [{src.name or src.path}] {', '.join(parts) or 'no changes'}")
+
+    # 3. Watcher
     click.echo("Starting watcher...")
     method, status = ensure_watcher(cfg)
     click.echo(f"  ✓ Watcher [{method}]: {status}")

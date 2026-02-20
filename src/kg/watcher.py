@@ -1,13 +1,18 @@
-"""inotify watcher: watches nodes/ directory and triggers SQLite re-index on changes.
+"""inotify watcher: watches nodes/ and source dirs, triggers SQLite re-index.
 
 Designed to run as a supervisord-managed daemon:
-    python -m kg.watcher /path/to/nodes /path/to/.mg-index/graph.db
+    python -m kg.watcher CONFIG_ROOT
 
-On IN_CLOSE_WRITE for any node.jsonl or meta.jsonl:
-    - Extracts the slug from the path
-    - Re-indexes just that node into SQLite (incremental, not full rebuild)
+On IN_CLOSE_WRITE for node.jsonl or meta.jsonl:
+    - Re-indexes that node (incremental)
 
-Falls back to polling if inotify is unavailable (macOS, Docker without inotify).
+On IN_CLOSE_WRITE for any source file:
+    - Re-indexes that file (content-hash checked inside index_file)
+
+Also runs a periodic poll of source dirs every `poll_interval` seconds
+as a safety net for missed inotify events.
+
+Falls back to pure polling if inotify is unavailable (macOS, Docker).
 """
 
 from __future__ import annotations
@@ -17,15 +22,36 @@ import sys
 import time
 from pathlib import Path
 
-logger = logging.getLogger("mg.file-watcher")
+logger = logging.getLogger("kg.watcher")
+
+_POLL_INTERVAL = 30.0      # seconds between periodic full-source polls
+_INOTIFY_TIMEOUT_MS = 5000
+
+
+# ---------------------------------------------------------------------------
+# Handlers
+# ---------------------------------------------------------------------------
+
+def _index_node(slug: str, nodes_dir: Path, db_path: Path) -> None:
+    from kg.indexer import index_node
+    try:
+        index_node(slug, nodes_dir=nodes_dir, db_path=db_path)
+        logger.info("node indexed: %s", slug)
+    except Exception:
+        logger.exception("failed to index node: %s", slug)
+
+
+def _index_source_file(path: Path, source_root: Path, source_name: str, db_path: Path, max_size_kb: int) -> None:
+    from kg.file_indexer import index_file
+    try:
+        rel = str(path.relative_to(source_root))
+        index_file(path, rel_path=rel, source_name=source_name, db_path=db_path, max_size_kb=max_size_kb)
+        logger.info("file indexed: %s", rel)
+    except Exception:
+        logger.exception("failed to index file: %s", path)
 
 
 def _slug_from_path(nodes_dir: Path, changed: Path) -> str | None:
-    """Extract slug from a changed file path.
-
-    nodes/asyncpg-patterns/node.jsonl  → "asyncpg-patterns"
-    nodes/asyncpg-patterns/meta.jsonl  → "asyncpg-patterns"
-    """
     try:
         rel = changed.relative_to(nodes_dir)
         return rel.parts[0]
@@ -33,68 +59,134 @@ def _slug_from_path(nodes_dir: Path, changed: Path) -> str | None:
         return None
 
 
-def _index_node(slug: str, nodes_dir: Path, db_path: Path) -> None:
-    """Re-index a single node into SQLite."""
-    from kg.indexer import index_node
-    try:
-        index_node(slug, nodes_dir=nodes_dir, db_path=db_path)
-        logger.info("indexed: %s", slug)
-    except Exception:
-        logger.exception("failed to index: %s", slug)
+# ---------------------------------------------------------------------------
+# inotify watcher
+# ---------------------------------------------------------------------------
 
+def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None) -> None:
+    """Watch using inotify_simple (Linux). Blocks forever.
 
-def watch_inotify(nodes_dir: Path, db_path: Path) -> None:
-    """Watch using inotify_simple (Linux). Blocks forever."""
+    sources: list of {path: Path, name: str, max_size_kb: int}
+    """
     import inotify_simple  # type: ignore[import]
 
     inotify = inotify_simple.INotify()
     flags = inotify_simple.flags  # type: ignore[attr-defined]
 
-    # Watch the nodes root — new subdirs appear here
-    inotify.add_watch(str(nodes_dir), flags.CREATE | flags.MOVED_TO)
+    # Track watch descriptors → (dir_path, kind, source_meta)
+    # kind: "nodes_root", "node_dir", "source_dir"
+    watched: dict[int, tuple[Path, str, dict]] = {}
 
-    # Watch all existing node dirs
-    watched: dict[int, Path] = {}
+    # Watch nodes root
+    wd = inotify.add_watch(str(nodes_dir), flags.CREATE | flags.MOVED_TO)
+    watched[wd] = (nodes_dir, "nodes_root", {})
+
+    # Watch existing node dirs
     for node_dir in nodes_dir.iterdir():
         if node_dir.is_dir():
             wd = inotify.add_watch(str(node_dir), flags.CLOSE_WRITE | flags.MOVED_TO)
-            watched[wd] = node_dir
+            watched[wd] = (node_dir, "node_dir", {})
 
-    logger.info("inotify watching %s", nodes_dir)
+    # Watch source dirs (recursively via rglob subdirs)
+    for src in (sources or []):
+        src_path: Path = src["path"]
+        if src_path.exists():
+            wd = inotify.add_watch(str(src_path), flags.CLOSE_WRITE | flags.MOVED_TO | flags.CREATE)
+            watched[wd] = (src_path, "source_dir", src)
+            # Watch subdirs too
+            for sub in src_path.rglob("*"):
+                if sub.is_dir():
+                    try:
+                        wd = inotify.add_watch(str(sub), flags.CLOSE_WRITE | flags.MOVED_TO)
+                        watched[wd] = (sub, "source_dir", src)
+                    except OSError:
+                        pass
+
+    logger.info("inotify watching nodes=%s, sources=%d", nodes_dir, len(sources or []))
+
+    last_poll = time.monotonic()
 
     while True:
-        for event in inotify.read(timeout=5000):
-            path_name = event.name  # filename only
+        for event in inotify.read(timeout=_INOTIFY_TIMEOUT_MS):
+            path_name = event.name
             if not path_name:
                 continue
 
-            # New subdirectory created under nodes/ — start watching it
-            if event.mask & flags.CREATE and not path_name.endswith(".jsonl"):
-                new_dir = nodes_dir / path_name
-                if new_dir.is_dir():
-                    wd = inotify.add_watch(str(new_dir), flags.CLOSE_WRITE | flags.MOVED_TO)
-                    watched[wd] = new_dir
-                    logger.debug("watching new dir: %s", new_dir)
-                continue
-
-            if not path_name.endswith(".jsonl"):
-                continue
-
-            # Find which dir this belongs to
             wd = event.wd
-            if wd in watched:
-                changed_path = watched[wd] / path_name
-                slug = _slug_from_path(nodes_dir, changed_path)
-                if slug:
-                    _index_node(slug, nodes_dir, db_path)
+            if wd not in watched:
+                continue
+
+            dir_path, kind, meta = watched[wd]
+
+            if kind == "nodes_root":
+                # New subdirectory created
+                if event.mask & flags.CREATE:
+                    new_dir = nodes_dir / path_name
+                    if new_dir.is_dir():
+                        new_wd = inotify.add_watch(str(new_dir), flags.CLOSE_WRITE | flags.MOVED_TO)
+                        watched[new_wd] = (new_dir, "node_dir", {})
+
+            elif kind == "node_dir":
+                if path_name.endswith(".jsonl"):
+                    changed = dir_path / path_name
+                    slug = _slug_from_path(nodes_dir, changed)
+                    if slug:
+                        _index_node(slug, nodes_dir, db_path)
+
+            elif kind == "source_dir":
+                changed = dir_path / path_name
+                if changed.is_dir():
+                    # New subdirectory — start watching it
+                    try:
+                        new_wd = inotify.add_watch(str(changed), flags.CLOSE_WRITE | flags.MOVED_TO)
+                        watched[new_wd] = (changed, "source_dir", meta)
+                    except OSError:
+                        pass
+                elif changed.is_file():
+                    _index_source_file(
+                        changed,
+                        source_root=meta["path"],
+                        source_name=meta.get("name", ""),
+                        db_path=db_path,
+                        max_size_kb=meta.get("max_size_kb", 512),
+                    )
+
+        # Periodic full poll of sources (catch missed events / deletions)
+        now = time.monotonic()
+        if now - last_poll >= _POLL_INTERVAL and sources:
+            _poll_sources(sources, db_path)
+            last_poll = now
 
 
-def watch_poll(nodes_dir: Path, db_path: Path, interval: float = 1.0) -> None:
+# ---------------------------------------------------------------------------
+# Polling fallback
+# ---------------------------------------------------------------------------
+
+def _poll_sources(sources: list[dict], db_path: Path) -> None:
+    from kg.file_indexer import index_source as _index_source
+    for src in sources:
+        try:
+            cfg_src = src.get("config")
+            if cfg_src is not None:
+                _index_source(cfg_src, db_path=db_path)
+        except Exception:
+            logger.exception("poll failed for source: %s", src.get("name"))
+
+
+def watch_poll(
+    nodes_dir: Path,
+    db_path: Path,
+    sources: list[dict] | None = None,
+    interval: float = 1.0,
+) -> None:
     """Polling fallback for macOS/Docker. Checks mtime every interval seconds."""
-    seen: dict[Path, float] = {}
-    logger.info("polling %s every %.1fs", nodes_dir, interval)
+    seen_nodes: dict[Path, float] = {}
+    seen_files: dict[Path, float] = {}
+    logger.info("polling nodes=%s interval=%.1fs", nodes_dir, interval)
+    last_source_poll = time.monotonic()
 
     while True:
+        # Poll nodes/
         for node_dir in nodes_dir.iterdir():
             if not node_dir.is_dir():
                 continue
@@ -103,25 +195,75 @@ def watch_poll(nodes_dir: Path, db_path: Path, interval: float = 1.0) -> None:
                 if not f.exists():
                     continue
                 mtime = f.stat().st_mtime
-                if seen.get(f, 0.0) < mtime:
-                    seen[f] = mtime
+                if seen_nodes.get(f, 0.0) < mtime:
+                    seen_nodes[f] = mtime
                     slug = _slug_from_path(nodes_dir, f)
                     if slug:
                         _index_node(slug, nodes_dir, db_path)
+
+        # Poll source files periodically
+        now = time.monotonic()
+        if now - last_source_poll >= _POLL_INTERVAL and sources:
+            for src in (sources or []):
+                src_path: Path = src["path"]
+                if not src_path.exists():
+                    continue
+                for f in src_path.rglob("*"):
+                    if not f.is_file():
+                        continue
+                    try:
+                        mtime = f.stat().st_mtime
+                    except OSError:
+                        continue
+                    if seen_files.get(f, 0.0) < mtime:
+                        seen_files[f] = mtime
+                        _index_source_file(
+                            f,
+                            source_root=src_path,
+                            source_name=src.get("name", ""),
+                            db_path=db_path,
+                            max_size_kb=src.get("max_size_kb", 512),
+                        )
+            last_source_poll = now
+
         time.sleep(interval)
 
 
-def run(nodes_dir: Path, db_path: Path) -> None:
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def _load_sources(config_root: Path | None) -> tuple[Path, Path, list[dict]]:
+    from kg.config import load_config
+    cfg = load_config(config_root)
+    sources = [
+        {
+            "path": src.abs_path,
+            "name": src.name,
+            "max_size_kb": src.max_size_kb,
+            "config": src,
+        }
+        for src in cfg.sources
+    ]
+    return cfg.nodes_dir, cfg.db_path, sources
+
+
+def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     try:
-        watch_inotify(nodes_dir, db_path)
+        watch_inotify(nodes_dir, db_path, sources)
     except ImportError:
         logger.warning("inotify_simple not available, falling back to polling")
-        watch_poll(nodes_dir, db_path)
+        watch_poll(nodes_dir, db_path, sources)
+
+
+def run_from_config(config_root: Path | None = None) -> None:
+    """Load kg.toml and start the watcher."""
+    nodes_dir, db_path, sources = _load_sources(config_root)
+    run(nodes_dir, db_path, sources)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python -m kg.watcher NODES_DIR DB_PATH", file=sys.stderr)  # noqa: T201
-        sys.exit(1)
-    run(Path(sys.argv[1]), Path(sys.argv[2]))
+    # Accept optional config root as argument
+    root = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    run_from_config(root)

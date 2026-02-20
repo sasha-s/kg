@@ -58,7 +58,7 @@ chmod=0700
 supervisor.rpcinterface_factory=supervisor.rpcinterface:make_main_rpcinterface
 
 [program:{_SUPERVISORD_PROGRAM}]
-command={python} -m kg.watcher {cfg.nodes_dir} {cfg.db_path}
+command={python} -m kg.watcher {cfg.root}
 autostart=true
 autorestart=true
 startretries=5
@@ -126,7 +126,7 @@ def _start_bg_watcher(cfg: KGConfig) -> int:
 
     with log_file.open("a") as log:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "kg.watcher", str(cfg.nodes_dir), str(cfg.db_path)],
+            [sys.executable, "-m", "kg.watcher", str(cfg.root)],
             stdout=log,
             stderr=log,
             start_new_session=True,

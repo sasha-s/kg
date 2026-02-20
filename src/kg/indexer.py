@@ -89,6 +89,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         END;
     """)
     conn.commit()
+    # Extend schema for file sources (idempotent)
+    from kg.file_indexer import ensure_file_schema
+    ensure_file_schema(conn)
 
 
 def index_node(slug: str, *, nodes_dir: Path, db_path: Path) -> None:
