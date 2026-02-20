@@ -145,6 +145,25 @@ def init(name: str | None, root: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _calibrate_after_reindex(cfg: KGConfig) -> None:
+    """Run calibration directly (watcher must be stopped). Logs result to stdout."""
+    import contextlib
+    with contextlib.suppress(Exception):
+        click.echo("Calibrating…")
+        result = calibrate(cfg.db_path, cfg)
+        if result.get("error"):
+            click.echo(f"  Calibration warning: {result['error']}", err=True)
+        elif result.get("warning"):
+            click.echo(f"  Calibration skipped: {result['warning']}")
+        else:
+            parts = []
+            if result.get("fts_calibrated"):
+                parts.append(f"FTS ({result['bullets_sampled']} bullets)")
+            if result.get("vec_calibrated"):
+                parts.append("vectors")
+            click.echo(f"  Calibrated: {', '.join(parts) or 'done'}")
+
+
 @cli.command()
 def reindex() -> None:
     """Rebuild SQLite index from all node.jsonl files.
@@ -176,6 +195,7 @@ def reindex() -> None:
         raise SystemExit(1) from exc
 
     click.echo(f"Indexed {n} nodes")
+    _calibrate_after_reindex(cfg)
 
     if was_running:
         from kg.daemon import ensure_watcher
@@ -220,6 +240,7 @@ def upgrade(no_reindex: bool) -> None:
                 stop_watcher(cfg)
             n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
             click.echo(f"Reindexed {n} nodes")
+            _calibrate_after_reindex(cfg)
             if was_running:
                 click.echo("Restarting watcher…")
                 ensure_watcher(cfg)
