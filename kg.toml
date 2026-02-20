@@ -1,0 +1,22 @@
+[kg]
+name = "kg"
+# nodes_dir = ".kg/nodes"   # default
+# index_dir = ".kg/index"   # default — add index/ to .gitignore
+
+# Index source files for FTS search (no LLM extraction — just chunk + index)
+# [[sources]]
+# name = "workspace"
+# path = "."
+# include = ["**/*.py", "**/*.md", "**/*.toml"]
+# exclude = [".kg/**", "**/__pycache__/**"]
+# use_git = true      # use git ls-files to respect .gitignore
+# max_size_kb = 512
+
+# [review]
+# budget_threshold = 500   # chars served before flagging a node for review (default: 500)
+
+# [embeddings]
+# model = "openai:text-embedding-3-small"
+
+# [server]
+# port = 7343

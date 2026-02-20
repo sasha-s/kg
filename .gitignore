@@ -7,9 +7,8 @@ build/
 .venv/
 .env
 
-# kg runtime artifacts
-.kg/
-kg.toml
+# kg: only ignore the derived index, not the nodes
+.kg/index/
 *.db
 *.db-wal
 *.db-shm
