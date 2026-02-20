@@ -42,11 +42,10 @@ uv tool install --editable ./kg
 
 | Extra | Packages | Use |
 |-------|----------|-----|
-| `embeddings` | `diskcache`, `numpy`, `google-genai` | Gemini embeddings (default model) |
-| `embeddings-local` | `diskcache`, `numpy`, `fastembed` | Local ONNX embeddings (no API key) |
-| `watch` | `inotify-simple` | Linux inotify file watching |
-| `turso` | `libsql` | Turso remote SQLite (requires cmake) |
+| `turso` | `libsql` | Turso remote SQLite (requires cmake to build) |
 | `dev` | `ruff`, `basedpyright`, `pytest` | Development tools |
+
+`fastembed`, `google-genai`, `diskcache`, `numpy`, and `inotify-simple` are included in the default dependencies.
 
 ## Quickstart
 
