@@ -1,10 +1,9 @@
 """Context packing: FTS search → compact ranked output for LLM injection.
 
-Compact output format:
-    [slug] Title  ●N bullets  ↑1430 credits
-    bullet text ←b-id1 | another bullet ←b-id2
-    ⚠ needs review (1430 credits, 12 bullets)   ← only when budget exceeded
-    ↳ Explore: [other-slug], [third-slug]
+Compact output format (matches mg context -c):
+    [slug] Title: bullet text ←b-id1 | another bullet ←b-id2
+    [slug2] bullet text ←b-id3
+    ↳ Explore: [other-slug], [third-slug]   ← global, at the end
 
 After serving a node, its token_budget is incremented by chars_served in meta.jsonl.
 Budget clears on explicit review (kg show / memory_show).
@@ -39,28 +38,11 @@ class ContextNode:
     review_hint: str | None = None
 
     def format_compact(self) -> str:
-        """Compact format: header with counts, bullets, optional review hint, explore."""
+        """Single-line format: [slug] Title: bullet ←id | bullet ←id"""
         bullet_parts = [f"{text} ←{bid}" for bid, text in self.bullets]
-
-        # Header: slug, title, bullet count, budget if significant
-        meta_parts: list[str] = []
-        if self.total_bullets:
-            meta_parts.append(f"●{self.total_bullets}")
-        if self.token_budget >= 100:
-            meta_parts.append(f"↑{int(self.token_budget)}")
-        meta_suffix = f"  {'  '.join(meta_parts)}" if meta_parts else ""
-        header = f"[{self.slug}] {self.title}{meta_suffix}"
-
         body = " | ".join(bullet_parts)
-        lines = [header]
-        if body:
-            lines.append(body)
-        if self.review_hint:
-            lines.append(self.review_hint)
-        if self.explore:
-            explore_str = ", ".join(f"[{s}]" for s in self.explore[:6])
-            lines.append(f"↳ Explore: {explore_str}")
-        return "\n".join(lines)
+        prefix = f"[{self.slug}] {self.title}"
+        return f"{prefix}: {body}" if body else prefix
 
 
 @dataclass
@@ -69,7 +51,19 @@ class PackedContext:
     total_chars: int
 
     def format_compact(self) -> str:
-        return "\n\n".join(n.format_compact() for n in self.nodes)
+        lines = [n.format_compact() for n in self.nodes]
+        # Collect all explore hints globally (deduplicated, excluding already-shown slugs)
+        shown = {n.slug for n in self.nodes}
+        explore: list[str] = []
+        seen_explore: set[str] = set()
+        for n in self.nodes:
+            for s in n.explore:
+                if s not in shown and s not in seen_explore:
+                    explore.append(s)
+                    seen_explore.add(s)
+        if explore:
+            lines.append("↳ Explore: " + ", ".join(f"[{s}]" for s in explore[:10]))
+        return "\n".join(lines)
 
 
 def build_context(
