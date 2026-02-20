@@ -121,7 +121,7 @@ class GeminiEmbedder:
         full_texts = [self._contextual(t, c) for t, c in zip(texts, contexts, strict=True)]
         result = self.client.models.embed_content(
             model=self.model,
-            contents=full_texts,
+            contents=full_texts,  # type: ignore[arg-type]  # SDK types too strict: list[str] is valid
             config={
                 "task_type": self.document_task_type,
                 "output_dimensionality": self.dimensions,
