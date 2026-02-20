@@ -41,8 +41,9 @@ _CALIBRATE_INTERVAL = 300.0   # seconds between auto-calibration checks
 # SIGHUP config reload
 # ---------------------------------------------------------------------------
 
-# Mutable container so signal handler and loop can share state without global.
-_reload_state: list[bool] = [False]  # [0] = reload_requested
+# Mutable containers so signal handlers and loop can share state without globals.
+_reload_state: list[bool] = [False]     # [0] = SIGHUP reload requested
+_calibrate_now: list[bool] = [False]    # [0] = SIGUSR1 calibrate requested
 
 
 class _ReloadRequestedError(Exception):
@@ -54,13 +55,18 @@ def _handle_sighup(signum: int, frame: object) -> None:  # noqa: ARG001
     logger.info("SIGHUP received — config reload requested")
 
 
+def _handle_sigusr1(signum: int, frame: object) -> None:  # noqa: ARG001
+    _calibrate_now[0] = True
+    logger.info("SIGUSR1 received — immediate calibration requested")
+
+
 # ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
 
-def _index_node(slug: str, nodes_dir: Path, db_path: Path) -> None:
+def _index_node(slug: str, nodes_dir: Path, db_path: Path, cfg: KGConfig | None = None) -> None:
     try:
-        index_node(slug, nodes_dir=nodes_dir, db_path=db_path)
+        index_node(slug, nodes_dir=nodes_dir, db_path=db_path, cfg=cfg)
         logger.info("node indexed: %s", slug)
     except Exception:
         logger.exception("failed to index node: %s", slug)
@@ -175,7 +181,7 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
                     changed = dir_path / path_name
                     slug = _slug_from_path(nodes_dir, changed)
                     if slug:
-                        _index_node(slug, nodes_dir, db_path)
+                        _index_node(slug, nodes_dir, db_path, cfg=cfg)
 
             elif kind == "source_dir":
                 changed = dir_path / path_name
@@ -202,7 +208,11 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
             last_poll = now
 
         now_cal = time.monotonic()
-        if now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
+        if _calibrate_now[0] and cfg is not None:
+            _calibrate_now[0] = False
+            _auto_calibrate_if_stale(db_path, cfg)
+            last_calibrate = time.monotonic()
+        elif now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
             _auto_calibrate_if_stale(db_path, cfg)
             last_calibrate = now_cal
 
@@ -252,7 +262,7 @@ def watch_poll(
                     seen_nodes[f] = mtime
                     slug = _slug_from_path(nodes_dir, f)
                     if slug:
-                        _index_node(slug, nodes_dir, db_path)
+                        _index_node(slug, nodes_dir, db_path, cfg=cfg)
 
         # Poll source files periodically
         now = time.monotonic()
@@ -280,7 +290,11 @@ def watch_poll(
             last_source_poll = now
 
         now_cal = time.monotonic()
-        if now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
+        if _calibrate_now[0] and cfg is not None:
+            _calibrate_now[0] = False
+            _auto_calibrate_if_stale(db_path, cfg)
+            last_calibrate = time.monotonic()
+        elif now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
             _auto_calibrate_if_stale(db_path, cfg)
             last_calibrate = now_cal
 
@@ -294,8 +308,32 @@ def watch_poll(
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _startup_index(nodes_dir: Path, db_path: Path, sources: list[dict] | None, cfg: KGConfig | None) -> None:
+    """Re-index all nodes and sources in a background thread on startup.
+
+    Ensures any nodes/files added while the watcher was stopped are indexed.
+    Uses content-hash checking, so unchanged content is a no-op.
+    """
+    import threading
+
+    def _do() -> None:
+        logger.info("startup: indexing all nodes")
+        if nodes_dir.exists():
+            for node_dir in nodes_dir.iterdir():
+                if node_dir.is_dir():
+                    slug = node_dir.name
+                    _index_node(slug, nodes_dir, db_path, cfg=cfg)
+        if sources:
+            logger.info("startup: indexing all sources")
+            _poll_sources(sources, db_path)
+        logger.info("startup: index complete")
+
+    threading.Thread(target=_do, daemon=True, name="kg-startup-index").start()
+
+
 def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None, cfg: KGConfig | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    _startup_index(nodes_dir, db_path, sources, cfg)
     try:
         watch_inotify(nodes_dir, db_path, sources, cfg=cfg)
     except ImportError:
@@ -309,6 +347,8 @@ def run_from_config(config_root: Path | None = None) -> None:
 
     if hasattr(_signal, "SIGHUP"):
         _signal.signal(_signal.SIGHUP, _handle_sighup)
+    if hasattr(_signal, "SIGUSR1"):
+        _signal.signal(_signal.SIGUSR1, _handle_sigusr1)
 
     while True:
         _reload_state[0] = False

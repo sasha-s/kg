@@ -155,11 +155,30 @@ def upgrade(no_reindex: bool) -> None:
 def calibrate_cmd(sample_size: int) -> None:
     """Calibrate FTS and vector search score quantiles.
 
-    Samples bullets, runs searches, computes percentile breakpoints used to
-    normalize scores when blending FTS and vector results.
+    If the watcher is running, signals it to calibrate (it is the exclusive
+    DB writer). Otherwise calibrates directly.
     """
+    import sqlite3
+
     cfg = _load_cfg()
-    result = calibrate(cfg.db_path, cfg, sample_size=sample_size)
+
+    from kg.daemon import signal_calibrate_watcher, watcher_status
+    if watcher_status(cfg) != "stopped":
+        msg = signal_calibrate_watcher(cfg)
+        click.echo(msg)
+        click.echo("Run `kg status` in a few seconds to see updated calibration.")
+        return
+
+    try:
+        result = calibrate(cfg.db_path, cfg, sample_size=sample_size)
+    except sqlite3.OperationalError as exc:
+        if "disk I/O error" in str(exc):
+            click.echo("Error: SQLite disk I/O error — DB may be corrupt or 0-byte.", err=True)
+            click.echo(f"  Fix: rm {cfg.db_path}* && kg reindex", err=True)
+        else:
+            click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
     if "error" in result:
         click.echo(f"Error: {result['error']}", err=True)
         return
@@ -1090,31 +1109,38 @@ def status() -> None:
     if cfg.use_turso:
         table.add_row("Index", str(cfg.database.url))
     elif cfg.db_path.exists():
-        age_s = int(time.time() - cfg.db_path.stat().st_mtime)
+        st = cfg.db_path.stat()
+        age_s = int(time.time() - st.st_mtime)
         if age_s < 120:
             age = f"{age_s}s ago"
         elif age_s < 3600:
             age = f"{age_s // 60}m ago"
         else:
             age = f"{age_s // 3600}h ago"
-        table.add_row("Index", f"{cfg.db_path}  ({age})")
+        size_mb = st.st_size / 1_000_000
+        table.add_row("Index", f"{cfg.db_path}  ({age})  [{size_mb:.1f} MB]")
     else:
         table.add_row("Index", "[red]missing[/red]")
 
     # Fetch embedding count and service status early — used by both Calibration and Services sections
     import contextlib as _cl
     n_emb = 0
+    n_indexed_bullets = 0
     if cfg.db_path.exists():
         with _cl.suppress(Exception):
             from kg.db import get_conn as _get_conn
             _ec = _get_conn(cfg)
             n_emb = _ec.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            n_indexed_bullets = _ec.execute("SELECT COUNT(*) FROM bullets").fetchone()[0]
             _ec.close()
 
     vs_status = vector_server_status(cfg)
 
     # --- Calibration ---
     table.add_row("", "")
+    # Warn if nodes exist in files but DB has no bullets (not indexed yet)
+    if n_nodes > 0 and n_indexed_bullets == 0 and cfg.db_path.exists():
+        table.add_row("Index", "[yellow]⚠ DB has no bullets — not indexed yet; restart watcher or run `kg reindex`[/yellow]")
     cal = get_calibration_status(cfg.db_path, cfg)
     if cal is None:
         table.add_row("Calibration", "[red]never — run `kg calibrate`[/red]")
@@ -1162,7 +1188,15 @@ def status() -> None:
         else:
             table.add_row("  Coverage", f"{cov} ({pct:.0f}%)")
 
+    # Embedding diskcache size
     import os as _os
+    _emb_cache_dir = Path.home() / ".cache" / "kg" / "embeddings"
+    if _emb_cache_dir.exists():
+        _cache_bytes = sum(
+            f.stat().st_size for f in _emb_cache_dir.rglob("*") if f.is_file()
+        )
+        table.add_row("  Emb cache", f"{_cache_bytes / 1_000_000:.1f} MB  ({_emb_cache_dir})")
+
     emb_model = cfg.embeddings.model
     lower_emb = emb_model.lower()
     if lower_emb.startswith("gemini:"):

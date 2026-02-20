@@ -298,3 +298,36 @@ def reload_watcher(cfg: KGConfig) -> str:
         return f"supervisorctl error: {result.stderr.strip()}"
 
     return "watcher not running"
+
+
+def signal_calibrate_watcher(cfg: KGConfig) -> str:
+    """Send SIGUSR1 to the running watcher to trigger immediate calibration.
+
+    Returns a human-readable status message.
+    """
+    usr1 = getattr(signal, "SIGUSR1", None)
+    if usr1 is None:
+        return "SIGUSR1 not available on this platform"
+
+    pid_file = _pid_file(cfg)
+    if _pid_running(pid_file):
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, usr1)
+            return f"calibration triggered in watcher (pid {pid})"
+        except (ValueError, ProcessLookupError):
+            return "stale PID file — watcher not running"
+
+    if _supervisord_running(cfg):
+        conf = str(_supervisord_conf_path(cfg))
+        result = subprocess.run(
+            ["supervisorctl", "-c", conf, "signal", "USR1", _SUPERVISORD_PROGRAM],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "calibration triggered in watcher (supervisord)"
+        return f"supervisorctl error: {result.stderr.strip()}"
+
+    return "watcher not running"
