@@ -1,0 +1,5 @@
+{"v": 1, "slug": "kg-architecture", "title": "kg-architecture", "type": "concept", "created_at": "2026-02-20T08:31:05.434653+00:00"}
+{"id": "b-1dab7d6b", "type": "decision", "text": "meta.json replaces meta.jsonl: single JSON file per node, RMW under flock (LOCK_SH read, LOCK_EX write), atomic write via .json.tmp + rename", "created_at": "2026-02-20T08:31:05.434824+00:00"}
+{"id": "b-1792b87b", "type": "fact", "text": "meta.json structure: {token_budget, last_reviewed, last_bullet_checkpoint, bullets: {id: {useful, harmful, used}}}", "created_at": "2026-02-20T08:31:09.008026+00:00"}
+{"id": "b-3fff8731", "type": "fact", "text": "migrate legacy meta.jsonl on first access: read all lines, merge into meta.json structure, delete legacy file after successful write", "created_at": "2026-02-20T08:31:12.565153+00:00"}
+{"id": "b-b14f5123", "type": "decision", "text": "only the inotify watcher writes to SQLite \u2014 CLI commands (kg add, kg review) write JSONL only [kg-stop-hook]", "created_at": "2026-02-20T08:31:16.456699+00:00"}

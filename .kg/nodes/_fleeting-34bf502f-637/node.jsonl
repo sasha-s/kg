@@ -1,0 +1,4 @@
+{"v": 1, "slug": "_fleeting-34bf502f-637", "title": "_fleeting-34bf502f-637", "type": "concept", "created_at": "2026-02-20T08:31:31.740617+00:00"}
+{"id": "b-507e7578", "type": "note", "text": "intent: refactor meta.jsonl->meta.json, fix vote scoring, fix stop hook session resume, add .claude symlink", "created_at": "2026-02-20T08:31:31.740792+00:00"}
+{"id": "b-5ccec484", "type": "note", "text": "outcome: v0.3.4-v0.3.6 released; meta.json atomic RMW; vote Beta prior with harmful_weight=2; _find_session_cwd via glob; .claude->.kg symlink in kg start", "created_at": "2026-02-20T08:31:36.299771+00:00"}
+{"id": "b-9b01c8fe", "type": "gotcha", "text": "gotcha: claude --resume needs cwd matching session original project -- hook cwd may differ when kg is sub-project", "created_at": "2026-02-20T08:31:46.635532+00:00"}
