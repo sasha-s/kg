@@ -1216,6 +1216,12 @@ def status() -> None:
     table.add_column("Value", justify="right")
 
     # --- Config ---
+    from importlib.metadata import version as _pkg_version
+    try:
+        _ver = _pkg_version("kg")
+    except Exception:
+        _ver = "unknown"
+    table.add_row("Version", _ver)
     table.add_row("Config", str(cfg.root / "kg.toml"))
     table.add_row("", "")
 
