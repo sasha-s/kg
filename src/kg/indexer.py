@@ -98,7 +98,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT,
             useful INTEGER DEFAULT 0,
             harmful INTEGER DEFAULT 0,
-            used INTEGER DEFAULT 0
+            used INTEGER DEFAULT 0,
+            num_voted INTEGER DEFAULT 0
         );
 
         -- Self-contained FTS5 table (no content= link): stores its own copy of text,
@@ -152,6 +153,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         END;
     """)
     conn.commit()
+    # Migrate: add num_voted column if missing (idempotent)
+    with contextlib.suppress(sqlite3.OperationalError):
+        conn.execute("ALTER TABLE bullets ADD COLUMN num_voted INTEGER DEFAULT 0")
+        conn.commit()
     # Extend schema for file sources (idempotent)
     ensure_file_schema(conn)
 
@@ -222,10 +227,10 @@ def index_node(slug: str, *, nodes_dir: Path, db_path: Path, cfg: KGConfig | Non
 
         for b in live:
             conn.execute(
-                "INSERT OR REPLACE INTO bullets(id, node_slug, type, text, status, created_at, useful, harmful, used) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO bullets(id, node_slug, type, text, status, created_at, useful, harmful, used, num_voted) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (b.id, node.slug, b.type, b.text, b.status, b.created_at,
-                 b.useful, b.harmful, b.used),
+                 b.useful, b.harmful, b.used, b.useful + b.harmful),
             )
             # Extract backlinks from text
             for ref in _CROSSREF_RE.findall(b.text):

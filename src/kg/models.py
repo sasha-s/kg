@@ -29,6 +29,28 @@ class FileBullet:
     harmful: int = 0
     used: int = 0
 
+    def vote_score(
+        self,
+        alpha: float = 2.0,
+        beta: float = 2.0,
+        harmful_weight: float = 2.0,
+    ) -> float:
+        """Beta-prior quality score with configurable priors and harmful weighting.
+
+        Formula: (useful + alpha) / (useful + harmful * harmful_weight + alpha + beta)
+
+        Defaults (alpha=2, beta=2, harmful_weight=2):
+          0 votes       → 0.5  (neutral — strong prior keeps score stable)
+          1u / 0h       → 0.60
+          0u / 1h       → 0.33  (harmful weighs double)
+          5u / 0h       → 0.78
+          5u / 1h       → 0.64
+          0u / 5h       → 0.14  (heavily penalised)
+        """
+        return (self.useful + alpha) / (
+            self.useful + self.harmful * harmful_weight + alpha + beta
+        )
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> FileBullet:
         return cls(

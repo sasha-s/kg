@@ -13,7 +13,6 @@ Commands:
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
 
@@ -33,7 +32,7 @@ from kg.daemon import (
 )
 from kg.db import get_conn as _get_db_conn
 from kg.file_indexer import collect_files, index_source
-from kg.indexer import calibrate, get_calibration, get_calibration_status, index_node, rebuild_all
+from kg.indexer import calibrate, get_calibration, get_calibration_status, rebuild_all
 from kg.install import (
     ensure_hook_installed,
     ensure_mcp_registered,
@@ -200,8 +199,107 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     bullet = store.add_bullet(slug, text=text, bullet_type=bullet_type, status=status)
-    index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path, cfg=cfg)
     click.echo(bullet.id)
+
+
+def _find_bullet_slug(bullet_id: str, cfg: KGConfig) -> str | None:
+    """Find which node owns a bullet by scanning node.jsonl files."""
+    import json as _json
+    if not cfg.nodes_dir.exists():
+        return None
+    for path in cfg.nodes_dir.glob("*/node.jsonl"):
+        try:
+            for line in path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                obj = _json.loads(line)
+                if obj.get("id") == bullet_id and not obj.get("deleted"):
+                    return path.parent.name
+        except Exception:  # noqa: S112
+            continue
+    return None
+
+
+@cli.command()
+@click.argument("bullet_id")
+@click.argument("text")
+def update(bullet_id: str, text: str) -> None:
+    """Update the text of a bullet by ID."""
+    cfg = _load_cfg()
+    slug = _find_bullet_slug(bullet_id, cfg)
+    if slug is None:
+        raise click.ClickException(f"Bullet not found: {bullet_id}")
+    store = FileStore(cfg.nodes_dir)
+    store.update_bullet(slug, bullet_id, text)
+    click.echo(f"Updated {bullet_id} on [{slug}]")
+
+
+@cli.command()
+@click.argument("bullet_id")
+def delete(bullet_id: str) -> None:
+    """Delete a bullet by ID (appends tombstone)."""
+    cfg = _load_cfg()
+    slug = _find_bullet_slug(bullet_id, cfg)
+    if slug is None:
+        raise click.ClickException(f"Bullet not found: {bullet_id}")
+    store = FileStore(cfg.nodes_dir)
+    store.delete_bullet(slug, bullet_id)
+    click.echo(f"Deleted {bullet_id} from [{slug}]")
+
+
+# ---------------------------------------------------------------------------
+# kg vote
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def vote() -> None:
+    """Vote on bullets to signal quality."""
+
+
+@vote.command("useful")
+@click.argument("bullet_ids", nargs=-1, required=True)
+def vote_useful(bullet_ids: tuple[str, ...]) -> None:
+    """Mark bullets as useful (+1 useful).
+
+    \b
+    kg vote useful b-abc12345 b-def67890
+    """
+    cfg = _load_cfg()
+    store = FileStore(cfg.nodes_dir)
+    ok, missing = 0, 0
+    for bid in bullet_ids:
+        slug = _find_bullet_slug(bid, cfg)
+        if slug is None:
+            click.echo(f"  not found: {bid}", err=True)
+            missing += 1
+            continue
+        store.vote(slug, bid, useful=True)
+        ok += 1
+    click.echo(f"Voted useful: {ok}" + (f"  ({missing} not found)" if missing else ""))
+
+
+@vote.command("harmful")
+@click.argument("bullet_ids", nargs=-1, required=True)
+def vote_harmful(bullet_ids: tuple[str, ...]) -> None:
+    """Mark bullets as harmful/wrong (-1 harmful).
+
+    \b
+    kg vote harmful b-abc12345 b-def67890
+    """
+    cfg = _load_cfg()
+    store = FileStore(cfg.nodes_dir)
+    ok, missing = 0, 0
+    for bid in bullet_ids:
+        slug = _find_bullet_slug(bid, cfg)
+        if slug is None:
+            click.echo(f"  not found: {bid}", err=True)
+            missing += 1
+            continue
+        store.vote(slug, bid, useful=False)
+        ok += 1
+    click.echo(f"Voted harmful: {ok}" + (f"  ({missing} not found)" if missing else ""))
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +401,7 @@ def show(
     kg show <slug> -l 5 -o 5    # bullets 6-10
     kg show <slug> -q "query"   # rank bullets and links by relevance
     """
+    slug = slug.strip("[]")
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     node = store.get(slug)
@@ -356,7 +455,9 @@ def show(
         prefix = f"({b.type}) " if b.type != "fact" else ""
         vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
         text = (b.text[:max_width] + "…") if max_width and len(b.text) > max_width else b.text
-        click.echo(f"  {prefix}{text}  ←{b.id}{vote_info}")
+        net = b.useful - b.harmful
+        vote_flag = "⚠ " if net < 0 else ("✓ " if b.useful > 0 and net > 0 else "")
+        click.echo(f"  {vote_flag}{prefix}{text}  ←{b.id}{vote_info}")
     if not query and limit and shown < total and not offset:
         click.echo(f"  … {total - shown} more  (use -l 0 or -o {shown} to see more)")
     if not no_backlinks:
@@ -394,8 +495,14 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         node = store.get(slug)
         if node is None:
             raise click.ClickException(f"Node not found: {slug}")
+        # Show vote-flagged bullets before clearing, so the reviewer sees what to act on
+        flagged = [b for b in node.live_bullets if b.harmful > b.useful]
+        if flagged:
+            click.echo(f"Vote-flagged bullets ({len(flagged)} harmful > useful):")
+            for b in flagged:
+                click.echo(f"  ⚠ {b.text}  ←{b.id}  [+{b.useful}/-{b.harmful}]")
+            click.echo("")
         store.clear_node_budget(slug)
-        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path, cfg=cfg)
         click.echo(f"Marked reviewed: [{slug}] {node.title}  (budget cleared)")
         return
 
@@ -404,7 +511,9 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         click.echo("No nodes directory found — run `kg init` first")
         return
     store = FileStore(cfg.nodes_dir)
-    candidates = sorted(
+
+    budget_slugs: set[str] = set()
+    budget_nodes = sorted(
         (
             n
             for n in store.iter_nodes()
@@ -414,19 +523,147 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         key=lambda n: n.credits_per_bullet(len(n.live_bullets)),
         reverse=True,
     )[:limit]
+    budget_slugs = {n.slug for n in budget_nodes}
+
+    # Also surface nodes with vote-flagged bullets not already in the budget list
+    flagged_only = [
+        n
+        for n in store.iter_nodes()
+        if not n.slug.startswith("_")
+        and n.slug not in budget_slugs
+        and any(b.harmful > b.useful for b in n.live_bullets)
+    ]
+
+    candidates = budget_nodes + flagged_only
+
     if not candidates:
         click.echo(
-            f"No nodes above {int(effective_threshold)} credits/bullet — graph looks healthy."
+            f"No nodes above {int(effective_threshold)} credits/bullet and no vote-flagged bullets — graph looks healthy."
         )
         return
-    click.echo(f"{'Cr/bullet':>9}  {'Credits':>8}  {'Bullets':>7}  Node")
-    click.echo("-" * 60)
+
+    click.echo(f"{'Cr/bullet':>9}  {'Credits':>8}  {'Bullets':>7}  {'Flagged':>7}  {'Votes':>7}  Node")
+    click.echo("-" * 80)
     for n in candidates:
         live = len(n.live_bullets)
+        flagged_count = sum(1 for b in n.live_bullets if b.harmful > b.useful)
+        flagged_col = f"{'⚠' + str(flagged_count):>7}" if flagged_count else f"{'':>7}"
+        total_useful = sum(b.useful for b in n.live_bullets)
+        total_harmful = sum(b.harmful for b in n.live_bullets)
+        votes_col = f"+{total_useful}/-{total_harmful}" if (total_useful or total_harmful) else ""
         reviewed = f"  last reviewed {n.last_reviewed[:10]}" if n.last_reviewed else ""
         click.echo(
-            f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  [{n.slug}] {n.title}{reviewed}"
+            f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  {flagged_col}  {votes_col:>7}  [{n.slug}] {n.title}{reviewed}"
         )
+
+
+# ---------------------------------------------------------------------------
+# kg nodes
+# ---------------------------------------------------------------------------
+
+
+class _NodesGroup(click.Group):
+    """Group that treats an unrecognised first positional arg as the PATTERN for listing."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # If the first arg is not a known subcommand and not an option flag,
+        # pull it out as the pattern and let the rest go through normally.
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
+            ctx.meta["nodes_pattern"] = args[0]
+            args = args[1:]
+        return super().parse_args(ctx, args)
+
+
+@cli.group(cls=_NodesGroup, invoke_without_command=True)
+@click.pass_context
+@click.option("--limit", "-l", default=20, show_default=True, help="Max nodes to list")
+@click.option("--recent", is_flag=True, help="Sort by most recently added bullet")
+@click.option("--bullets", is_flag=True, help="Sort by bullet count descending")
+def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool) -> None:
+    """List nodes in the knowledge graph.
+
+    \b
+    kg nodes                # all nodes, alphabetical
+    kg nodes '*search*'     # glob filter on slug
+    kg nodes --bullets      # sorted by bullet count
+    kg nodes --recent -l 5  # 5 most recently updated
+    kg nodes show <slug>    # alias for kg show
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    pattern: str | None = ctx.meta.get("nodes_pattern")
+
+    import fnmatch
+
+    cfg = _load_cfg()
+
+    if not cfg.db_path.exists():
+        raise click.ClickException("No index found — run `kg reindex` first")
+
+    conn = _get_db_conn(cfg)
+
+    if recent:
+        sql = """
+            SELECT n.slug, n.title, n.type, n.bullet_count,
+                   MAX(b.created_at) AS last_bullet
+            FROM nodes n
+            LEFT JOIN bullets b ON b.node_slug = n.slug
+            GROUP BY n.slug
+            ORDER BY last_bullet DESC NULLS LAST
+            LIMIT ?
+        """
+    elif bullets:
+        sql = """
+            SELECT slug, title, type, bullet_count, created_at AS last_bullet
+            FROM nodes
+            ORDER BY bullet_count DESC
+            LIMIT ?
+        """
+    else:
+        sql = """
+            SELECT slug, title, type, bullet_count, created_at AS last_bullet
+            FROM nodes
+            ORDER BY slug
+            LIMIT ?
+        """
+
+    rows = conn.execute(sql, (limit * 4 if pattern else limit,)).fetchall()
+    conn.close()
+
+    if pattern:
+        rows = [r for r in rows if fnmatch.fnmatch(r[0], pattern)]
+        rows = rows[:limit]
+
+    if not rows:
+        click.echo("(no nodes)")
+        return
+
+    for slug, title, ntype, bullet_count, last_bullet in rows:
+        date_part = f"  {last_bullet[:10]}" if last_bullet else ""
+        type_part = f"  type={ntype}" if ntype and ntype != "concept" else ""
+        click.echo(f"[{slug}]  {title}  ●{bullet_count}{type_part}{date_part}")
+
+
+@nodes.command("show")
+@click.argument("slug")
+@click.option("--query", "-q", default=None, help="Rank bullets and links by relevance to this query")
+@click.option("--limit", "-l", default=10, show_default=True, help="Max bullets to show (0 = all)")
+@click.option("--offset", "-o", default=0, show_default=True, help="Skip first N bullets (for pagination, ignored with -q)")
+@click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
+@click.option("--no-backlinks", is_flag=True, help="Skip backlinks and links sections")
+@click.pass_context
+def nodes_show(
+    ctx: click.Context,
+    slug: str,
+    query: str | None,
+    limit: int,
+    offset: int,
+    max_width: int,
+    no_backlinks: bool,
+) -> None:
+    """Show bullets for a node (alias for kg show)."""
+    ctx.invoke(show, slug=slug, query=query, limit=limit, offset=offset, max_width=max_width, no_backlinks=no_backlinks)
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +978,7 @@ def start(scope: str) -> None:
 
     # 4. MCP server
     click.echo("Registering MCP server...")
-    ok, msg = ensure_mcp_registered(scope=scope)
+    ok, msg = ensure_mcp_registered(scope=scope, root=cfg.root)
     marker = "✓" if ok else "✗"
     click.echo(f"  {marker} {msg}")
 
@@ -761,14 +998,41 @@ def start(scope: str) -> None:
     click.echo("\nDone. Run `kg status` to verify.")
 
 
+_SPARK = "▁▂▃▄▅▆▇█"
+
+
+def _score_spark(breaks: list[float], fmt: str = ".2f") -> str:
+    """Density sparkline from percentile breaks + min/p25/p50/p75/max annotations."""
+    # Bucket widths are inversely proportional to density (equal-probability buckets).
+    widths = [max(breaks[i + 1] - breaks[i], 1e-10) for i in range(len(breaks) - 1)]
+    densities = [1.0 / w for w in widths]
+    lo, hi = min(densities), max(densities)
+    spark = "".join(
+        _SPARK[round((d - lo) / (hi - lo) * 7)] if hi > lo else _SPARK[3]
+        for d in densities
+    )
+    # brk[0]=p0, brk[5]≈p26, brk[10]≈p53, brk[14]≈p74, brk[19]=p100
+    p0, p25, p50, p75, p100 = breaks[0], breaks[5], breaks[10], breaks[14], breaks[19]
+    w = len(f"{p0:{fmt}}")
+    header = f"{'min':>{w}}  {'p25':>{w}}  {'p50':>{w}}  {'p75':>{w}}  {'max':>{w}}"
+    stats   = f"{p0:{fmt}}  {p25:{fmt}}  {p50:{fmt}}  {p75:{fmt}}  {p100:{fmt}}"
+    return f"{spark}\n[dim]{header}[/dim]\n{stats}"
+
+
 @cli.command()
 def status() -> None:
     """Show project stats and status of watcher, MCP server, and hook."""
+    from rich.console import Console
+    from rich.table import Table
+
     cfg = _load_cfg()
+    console = Console()
 
-    click.echo(f"Project   : {cfg.name}  ({cfg.root})")
+    table = Table(title=f"kg — {cfg.name}", show_header=True, header_style="bold")
+    table.add_column("Metric", style="dim", no_wrap=True)
+    table.add_column("Value", justify="right")
 
-    # Node + bullet stats (review count from files — always current)
+    # --- Nodes / bullets ---
     if cfg.nodes_dir.exists():
         _store = FileStore(cfg.nodes_dir)
         _all = [n for n in _store.iter_nodes() if not n.slug.startswith("_")]
@@ -777,74 +1041,73 @@ def status() -> None:
         review_count = sum(
             1 for n in _all if n.needs_review(cfg.review.budget_threshold, len(n.live_bullets))
         )
-        review_hint = f"  ⚠ {review_count} need review" if review_count else ""
-        click.echo(f"Nodes     : {n_nodes} nodes, {n_bullets} bullets{review_hint}")
-        if cfg.use_turso:
-            click.echo(f"Index     : {cfg.database.url}")
-        elif cfg.db_path.exists():
-            age_s = int(time.time() - cfg.db_path.stat().st_mtime)
-            if age_s < 120:
-                age = f"{age_s}s ago"
-            elif age_s < 3600:
-                age = f"{age_s // 60}m ago"
-            else:
-                age = f"{age_s // 3600}h ago"
-            click.echo(f"Index     : {cfg.db_path}  (updated {age})")
+        table.add_row("Nodes", str(n_nodes))
+        table.add_row("Bullets", str(n_bullets))
+        if review_count:
+            table.add_row("  Need review", f"[yellow]⚠ {review_count}[/yellow]")
     else:
-        store = FileStore(cfg.nodes_dir)
-        n_nodes = len(store.list_slugs())
-        click.echo(f"Nodes     : {n_nodes} (no index — run `kg reindex`)")
-        click.echo(f"Index     : {cfg.db_path}  (missing)")
+        table.add_row("Nodes", "[red]no index — run `kg reindex`[/red]")
 
-    # Calibration status
+    # --- Index ---
+    if cfg.use_turso:
+        table.add_row("Index", str(cfg.database.url))
+    elif cfg.db_path.exists():
+        age_s = int(time.time() - cfg.db_path.stat().st_mtime)
+        if age_s < 120:
+            age = f"{age_s}s ago"
+        elif age_s < 3600:
+            age = f"{age_s // 60}m ago"
+        else:
+            age = f"{age_s // 3600}h ago"
+        table.add_row("Index", f"{cfg.db_path}  ({age})")
+    else:
+        table.add_row("Index", "[red]missing[/red]")
+
+    # --- Calibration ---
+    table.add_row("", "")
     cal = get_calibration_status(cfg.db_path, cfg)
     if cal is None:
-        click.echo("Calibration: never  — run `kg calibrate`")
+        table.add_row("Calibration", "[red]never — run `kg calibrate`[/red]")
     else:
         ops = cal["ops_since"]
         delta = cal["current_bullets"] - cal["bullet_count"]
         delta_str = f"+{delta}" if delta >= 0 else str(delta)
         stale = ops >= 20 or abs(delta) > max(5, cal["bullet_count"] // 10)
-        flag = "⚠ stale" if stale else "current"
-        hint = "  — run `kg calibrate`" if stale else ""
-        click.echo(
-            f"Calibration: {flag}  ({cal['bullet_count']} bullets, "
-            f"{ops} ops since, {delta_str} bullets){hint}"
-        )
-        # Show quantile ranges for FTS and vector
+        cal_flag = "[yellow]⚠ stale — run `kg calibrate`[/yellow]" if stale else "[green]current[/green]"
+        table.add_row("Calibration", cal_flag)
+        table.add_row("  Snapshot", f"{cal['bullet_count']} bullets")
+        table.add_row("  Since then", f"{ops} ops, {delta_str} bullets")
         fts_cal = get_calibration("fts", cfg.db_path, cfg)
         vec_cal = get_calibration("vector", cfg.db_path, cfg)
-        parts: list[str] = []
         if fts_cal:
             brk = fts_cal[1]
-            p25, p95 = brk[5], brk[18]  # approx p25..p95 of 20 buckets
-            parts.append(f"FTS p25..p95: {p25:.2f}..{p95:.2f}")
+            table.add_row("  FTS scores", _score_spark(brk, ".2f"))
         if vec_cal:
             brk = vec_cal[1]
-            p25, p95 = brk[5], brk[18]
-            parts.append(f"Vec p25..p95: {p25:.3f}..{p95:.3f}")
-        if parts:
-            click.echo(f"             {' | '.join(parts)}")
+            table.add_row("  Vec scores", _score_spark(brk, ".3f"))
 
+    # --- Services ---
+    table.add_row("", "")
     w_status = watcher_status(cfg)
-    w_hint = "  — run `kg start` to start" if w_status == "stopped" else ""
-    click.echo(f"Watcher   : {w_status}{w_hint}")
-    vs_status = vector_server_status(cfg)
-    vs_hint = "  — run `kg start` to start" if vs_status == "stopped" else ""
-    click.echo(f"Vectors   : {vs_status}{vs_hint}")
-    click.echo(f"MCP       : {mcp_health(cfg)}")
+    w_val = w_status if w_status != "stopped" else "[dim]stopped — run `kg start`[/dim]"
+    table.add_row("Watcher", w_val)
 
-    # Hooks — installed hooks + kg hooks not yet installed
-    from kg.install import _claude_settings_path, _is_kg_hook
+    vs_status = vector_server_status(cfg)
+    vs_val = vs_status if vs_status != "stopped" else "[dim]stopped — run `kg start`[/dim]"
+    table.add_row("Vectors", vs_val)
+
+    table.add_row("MCP", mcp_health(cfg))
+
+    # --- Hooks ---
+    table.add_row("", "")
+    from kg.install import _claude_settings_path
 
     hooks = list_all_hooks()
     settings_path = _claude_settings_path()
 
-    # Check if each expected kg hook module is installed (regardless of Python path)
     def _module_installed(module: str) -> bool:
         return any(module in h["command"] for h in hooks)
 
-    # Expected kg hooks based on config
     kg_expected_modules = ["kg.hooks.session_context"]
     if cfg.hooks.stop:
         kg_expected_modules.append("kg.hooks.stop")
@@ -854,34 +1117,28 @@ def status() -> None:
         "kg.hooks.stop": "Stop",
     }
 
-    all_lines: list[str] = []
+    n_installed = len(hooks)
+    table.add_row("Hooks", f"{n_installed} installed  ({settings_path})")
     for h in hooks:
-        kg_marker = " [kg]" if _is_kg_hook(h["command"]) else ""
-        all_lines.append(f"  {h['event']}  {h['command']}{kg_marker}")
+        cmd_short = h["command"].split()[-1] if h["command"] else h["command"]
+        table.add_row(f"  {h['event']}", cmd_short)
     for module in kg_expected_modules:
         if not _module_installed(module):
             event = event_for_module.get(module, "?")
-            all_lines.append(f"  {event}  {sys.executable} -m {module} [kg] ✗ not installed — run `kg start`")
+            table.add_row(f"  {event}", f"[red]✗ {module} not installed — run `kg start`[/red]")
 
-    n_installed = len(hooks)
-    if not all_lines:
-        click.echo(f"Hooks     : none  ({settings_path})")
-    else:
-        click.echo(f"Hooks     : {n_installed} installed  ({settings_path})")
-        for line in all_lines:
-            click.echo(f"           {line}")
-
-    # Sources — what's being indexed beyond nodes/
+    # --- Sources ---
     if cfg.sources:
-        click.echo(f"Sources   : {len(cfg.sources)} source(s)")
+        table.add_row("", "")
+        table.add_row("Sources", str(len(cfg.sources)))
         for src in cfg.sources:
-            name_part = f"  [{src.name}]" if src.name else ""
+            name_part = f"[{src.name}]  " if src.name else ""
             includes = ", ".join(src.include[:3])
             if len(src.include) > 3:
                 includes += f", +{len(src.include) - 3} more"
-            click.echo(f"            {src.abs_path}{name_part}  ({includes})")
-    else:
-        click.echo("Sources   : none  (add [[sources]] to kg.toml to index files)")
+            table.add_row(f"  {src.abs_path.name}", f"{name_part}{includes}")
+
+    console.print(table)
 
 
 @cli.command()
@@ -935,6 +1192,12 @@ def web(host: str | None, port: int | None) -> None:
 
     _web_serve(cfg, host=host or cfg.server.web_host, port=port or cfg.server.web_port)
 
+
+# ---------------------------------------------------------------------------
+# Aliases
+# ---------------------------------------------------------------------------
+
+cli.add_command(search, name="query")
 
 # ---------------------------------------------------------------------------
 # Entry point

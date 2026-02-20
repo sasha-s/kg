@@ -137,15 +137,25 @@ def build_context(
                 if not slug.startswith(_INTERNAL_PREFIX):
                     vec_scores[slug] = float(score)
 
-    # Include vector-only hits (no FTS match) — load all their bullets
+    # Load nodes to get vote scores + fill vector-only hits
     store_for_vec = FileStore(nodes_dir)
-    for slug in vec_scores:
-        if slug not in groups and (not seen_slugs or slug not in seen_slugs):
-            node = store_for_vec.get(slug)
-            if node is not None:
-                groups[slug] = [(b.id, b.text) for b in node.live_bullets]
+    vote_multipliers: dict[str, float] = {}
+    for slug in list(groups) + [s for s in vec_scores if s not in groups]:
+        if seen_slugs and slug in seen_slugs:
+            continue
+        node = store_for_vec.get(slug)
+        if node is None:
+            continue
+        live = node.live_bullets
+        if live:
+            # Per-node vote multiplier: mean vote_score, centered so 0.5 → 1.0
+            # Range: 0→0, 0.5→1.0, 1.0→2.0  (neutral bullets don't change rank)
+            mean_vs = sum(b.vote_score() for b in live) / len(live)
+            vote_multipliers[slug] = mean_vs * 2.0
+        if slug not in groups:
+            groups[slug] = [(b.id, b.text) for b in live]
 
-    sorted_slugs = _rank_slugs(groups, fts_scores, vec_scores, db_path, cfg)
+    sorted_slugs = _rank_slugs(groups, fts_scores, vec_scores, db_path, cfg, vote_multipliers)
 
     # Rerank top results with cross-encoder (uses rerank_query or query)
     if cfg is not None and cfg.search.use_reranker and len(sorted_slugs) >= 2:
@@ -248,6 +258,7 @@ def _rank_slugs(
     vec_scores: dict[str, float],
     db_path: Path,
     cfg: KGConfig | None,
+    vote_multipliers: dict[str, float] | None = None,
 ) -> list[str]:
     """Rank FTS-matched slugs using calibrated quantile fusion (or rank-based fallback).
 
@@ -288,6 +299,9 @@ def _rank_slugs(
         vec_q = score_to_quantile(vec_raw, vec_breaks) if vec_breaks and vec_raw > 0 else vec_raw
 
         bonus = dual_bonus if (fts_raw > 0 and vec_raw > 0) else 0.0
-        slug_score[slug] = fts_w * fts_q + vec_w * vec_q + bonus
+        base = fts_w * fts_q + vec_w * vec_q + bonus
+        # Vote quality multiplier: neutral (0 votes) → 1.0, useful → >1.0, harmful → <1.0
+        vm = vote_multipliers.get(slug, 1.0) if vote_multipliers else 1.0
+        slug_score[slug] = base * vm
 
     return sorted(groups, key=lambda s: slug_score[s], reverse=True)

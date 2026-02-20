@@ -34,25 +34,16 @@ def _is_kg_hook(command: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def ensure_mcp_registered(scope: str = "user") -> tuple[bool, str]:
-    """Register `kg serve` as an MCP server. Idempotent.
+def ensure_mcp_registered(scope: str = "user", root: Path | None = None) -> tuple[bool, str]:
+    """Register `kg serve --root <root>` as an MCP server. Idempotent.
 
+    Passes --root so the server works regardless of invocation cwd.
     Returns (success, message).
     """
     if not shutil.which("claude"):
         return False, "`claude` CLI not found — install Claude Code to register MCP server"
 
-    # Check if already registered
-    result = subprocess.run(
-        ["claude", "mcp", "list"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if _MCP_SERVER_NAME in result.stdout:
-        return True, f"MCP server '{_MCP_SERVER_NAME}' already registered"
-
-    # Register
+    root_path = str(root.resolve()) if root else str(Path.cwd().resolve())
     kg_bin = shutil.which("kg")
     if kg_bin is None:
         return (
@@ -60,14 +51,42 @@ def ensure_mcp_registered(scope: str = "user") -> tuple[bool, str]:
             "`kg` not found on PATH — install with `pip install kg` or `uv tool install kg`",
         )
 
+    expected_args = [kg_bin, "serve", "--root", root_path]
+
+    # Check if already registered with the correct args
     result = subprocess.run(
-        ["claude", "mcp", "add", "--scope", scope, _MCP_SERVER_NAME, "--", kg_bin, "serve"],
+        ["claude", "mcp", "list"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if _MCP_SERVER_NAME in result.stdout:
+        # Check ~/.claude.json for correct root arg
+        claude_json = Path.home() / ".claude.json"
+        if claude_json.exists():
+            try:
+                data = json.loads(claude_json.read_text())
+                existing = data.get("mcpServers", {}).get(_MCP_SERVER_NAME, {})
+                if existing.get("args") == ["serve", "--root", root_path]:
+                    return True, f"MCP server '{_MCP_SERVER_NAME}' already registered"
+            except Exception:  # noqa: S110
+                pass
+        # Re-register with updated root — remove first
+        subprocess.run(
+            ["claude", "mcp", "remove", _MCP_SERVER_NAME],
+            capture_output=True,
+            check=False,
+        )
+
+    # Register with --root
+    result = subprocess.run(
+        ["claude", "mcp", "add", "--scope", scope, _MCP_SERVER_NAME, "--", *expected_args],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode == 0:
-        return True, f"MCP server '{_MCP_SERVER_NAME}' registered (scope={scope})"
+        return True, f"MCP server '{_MCP_SERVER_NAME}' registered --root {root_path} (scope={scope})"
     return False, f"Failed to register MCP: {result.stderr.strip()}"
 
 

@@ -1,10 +1,20 @@
-"""Read and write node.jsonl / meta.jsonl files.
+"""Read and write node.jsonl / meta.json files.
 
 FileStore is the public API:
     store = FileStore("/path/to/nodes")
     node = store.get("asyncpg-patterns")
     store.add_bullet("asyncpg-patterns", type="gotcha", text="LIKE is case-sensitive")
     store.vote("b-abc12345", useful=True)
+
+meta.json layout (single file, read-modify-write under flock):
+    {
+      "token_budget": 1234.0,
+      "last_reviewed": "2026-...",
+      "last_bullet_checkpoint": 0,
+      "bullets": {
+        "b-abc123": {"useful": 3, "harmful": 0, "used": 1, "updated_at": "..."}
+      }
+    }
 """
 
 from __future__ import annotations
@@ -43,6 +53,9 @@ class FileStore:
         return self._node_dir(slug) / "node.jsonl"
 
     def _meta_path(self, slug: str) -> Path:
+        return self._node_dir(slug) / "meta.json"
+
+    def _meta_path_legacy(self, slug: str) -> Path:
         return self._node_dir(slug) / "meta.jsonl"
 
     # ------------------------------------------------------------------
@@ -95,87 +108,97 @@ class FileStore:
         return node
 
     def _merge_meta(self, node: FileNode) -> None:
-        """Load meta.jsonl and attach vote counts + node-level budget to node."""
-        path = self._meta_path(node.slug)
-        if not path.exists():
-            return
-
-        votes: dict[str, dict[str, Any]] = {}
-        node_meta: dict[str, Any] = {}
-        with path.open() as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if "_node" in obj:
-                    # Node-level entry — last write wins
-                    node_meta = obj
-                elif "id" in obj:
-                    votes[obj["id"]] = obj
-
+        """Load meta.json and attach vote counts + node-level budget to node."""
+        meta = self._read_meta(node.slug)
+        bullet_votes: dict[str, Any] = meta.get("bullets", {})
         for b in node.bullets:
-            if b.id in votes:
-                v = votes[b.id]
+            if b.id in bullet_votes:
+                v = bullet_votes[b.id]
                 b.useful = int(v.get("useful", 0))
                 b.harmful = int(v.get("harmful", 0))
                 b.used = int(v.get("used", 0))
-
-        if node_meta:
-            node.token_budget = float(node_meta.get("token_budget", 0.0))
-            node.last_reviewed = node_meta.get("last_reviewed", "")
+        node.token_budget = float(meta.get("token_budget", 0.0))
+        node.last_reviewed = meta.get("last_reviewed", "")
 
     def update_node_budget(self, slug: str, delta_chars: float) -> float:
         """Increment token_budget by delta_chars. Returns new total."""
-        current = self._read_node_meta(slug)
-        new_budget = float(current.get("token_budget", 0.0)) + delta_chars
-        self._write_node_meta(slug, {
-            **current,
-            "_node": slug,
-            "token_budget": new_budget,
-            "updated_at": datetime.now(UTC).isoformat(),
-        })
+        meta = self._read_meta(slug)
+        new_budget = float(meta.get("token_budget", 0.0)) + delta_chars
+        self._write_meta(slug, {**meta, "token_budget": new_budget})
         return new_budget
 
     def clear_node_budget(self, slug: str) -> None:
         """Mark node as reviewed: zero out budget, reset structural checkpoint."""
-        current = self._read_node_meta(slug)
-        self._write_node_meta(slug, {
-            **current,
-            "_node": slug,
+        meta = self._read_meta(slug)
+        self._write_meta(slug, {
+            **meta,
             "token_budget": 0.0,
-            "last_bullet_checkpoint": 0,   # allows next crossing to re-fire
+            "last_bullet_checkpoint": 0,
             "last_reviewed": datetime.now(UTC).isoformat(),
-            "updated_at": datetime.now(UTC).isoformat(),
         })
 
-    def _write_node_meta(self, slug: str, data: dict[str, Any]) -> None:
-        """Append a node-level meta entry to meta.jsonl."""
+    def _read_meta(self, slug: str) -> dict[str, Any]:
+        """Read meta.json. Falls back to migrating legacy meta.jsonl on first access."""
+        path = self._meta_path(slug)
+        if path.exists():
+            try:
+                with path.open() as f:
+                    fcntl.flock(f, fcntl.LOCK_SH)
+                    return json.load(f)  # type: ignore[no-any-return]
+            except (json.JSONDecodeError, OSError):
+                return {}
+        # Migrate from legacy meta.jsonl if present
+        legacy = self._meta_path_legacy(slug)
+        if legacy.exists():
+            return self._migrate_legacy_meta(slug, legacy)
+        return {}
+
+    def _write_meta(self, slug: str, data: dict[str, Any]) -> None:
+        """Atomically write meta.json under exclusive flock."""
         path = self._meta_path(slug)
         path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(data) + "\n"
-        with path.open("a") as f:
+        # Write to tmp then rename for atomicity
+        tmp = path.with_suffix(".json.tmp")
+        with tmp.open("w") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(line)
+            json.dump(data, f, indent=2)
+        tmp.replace(path)
 
-    def _read_node_meta(self, slug: str) -> dict[str, Any]:
-        """Read the most recent node-level meta entry from meta.jsonl."""
-        path = self._meta_path(slug)
-        if not path.exists():
-            return {}
-        current: dict[str, Any] = {}
-        with path.open() as f:
-            for line in f:
-                try:
-                    obj = json.loads(line.strip())
+    def _migrate_legacy_meta(self, slug: str, legacy: Path) -> dict[str, Any]:
+        """Read legacy meta.jsonl and write out meta.json. One-time migration."""
+        votes: dict[str, Any] = {}
+        node_meta: dict[str, Any] = {}
+        try:
+            with legacy.open() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
                     if "_node" in obj:
-                        current = obj
-                except json.JSONDecodeError:
-                    continue
-        return current
+                        node_meta = obj
+                    elif "id" in obj:
+                        votes[obj["id"]] = obj
+        except OSError:
+            return {}
+
+        meta: dict[str, Any] = {
+            "token_budget": float(node_meta.get("token_budget", 0.0)),
+            "last_reviewed": node_meta.get("last_reviewed", ""),
+            "last_bullet_checkpoint": int(node_meta.get("last_bullet_checkpoint", 0)),
+            "bullets": {
+                bid: {k: v for k, v in bv.items() if k != "id"}
+                for bid, bv in votes.items()
+            },
+        }
+        self._write_meta(slug, meta)
+        # Remove legacy file after successful migration
+        with contextlib.suppress(OSError):
+            legacy.unlink()
+        return meta
 
     def exists(self, slug: str) -> bool:
         return self._node_path(slug).exists()
@@ -273,17 +296,14 @@ class FileStore:
                 count = len(node.live_bullets)
                 cp = structural_checkpoint(count)
                 if cp is not None:
-                    meta = self._read_node_meta(slug)
+                    meta = self._read_meta(slug)
                     last_cp = int(meta.get("last_bullet_checkpoint", 0))
                     if cp > last_cp:
-                        # Bomb: add enough to push credits_per_bullet >= threshold
                         bomb = max(0.0, _REVIEW_BUDGET_THRESHOLD * count - float(meta.get("token_budget", 0.0)))
-                        self._write_node_meta(slug, {
+                        self._write_meta(slug, {
                             **meta,
                             "token_budget": float(meta.get("token_budget", 0.0)) + bomb,
                             "last_bullet_checkpoint": cp,
-                            "_node": slug,
-                            "updated_at": datetime.now(UTC).isoformat(),
                         })
 
         return bullet
@@ -306,62 +326,29 @@ class FileStore:
             f.write(tombstone)
 
     # ------------------------------------------------------------------
-    # Write — votes (append to meta.jsonl)
+    # Write — votes (meta.json)
     # ------------------------------------------------------------------
 
     def vote(self, slug: str, bullet_id: str, *, useful: bool) -> None:
-        """Append a vote entry to meta.jsonl."""
-        path = self._meta_path(slug)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Read current vote state to increment
-        votes: dict[str, Any] = {}
-        if path.exists():
-            with path.open() as f:
-                for line in f:
-                    try:
-                        obj = json.loads(line.strip())
-                        if "id" in obj:
-                            votes[obj["id"]] = obj
-                    except json.JSONDecodeError:
-                        continue
-
-        current = votes.get(bullet_id, {"id": bullet_id, "useful": 0, "harmful": 0, "used": 0})
+        """Record a vote in meta.json (read-modify-write under flock)."""
+        meta = self._read_meta(slug)
+        bullets = meta.setdefault("bullets", {})
+        b = bullets.setdefault(bullet_id, {"useful": 0, "harmful": 0, "used": 0})
         if useful:
-            current["useful"] = int(current.get("useful", 0)) + 1
+            b["useful"] = int(b.get("useful", 0)) + 1
         else:
-            current["harmful"] = int(current.get("harmful", 0)) + 1
-        current["updated_at"] = datetime.now(UTC).isoformat()
-
-        line = json.dumps(current) + "\n"
-        with path.open("a") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(line)
+            b["harmful"] = int(b.get("harmful", 0)) + 1
+        b["updated_at"] = datetime.now(UTC).isoformat()
+        self._write_meta(slug, meta)
 
     def record_use(self, slug: str, bullet_id: str) -> None:
-        """Increment used counter in meta.jsonl."""
-        path = self._meta_path(slug)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        votes: dict[str, Any] = {}
-        if path.exists():
-            with path.open() as f:
-                for line in f:
-                    try:
-                        obj = json.loads(line.strip())
-                        if "id" in obj:
-                            votes[obj["id"]] = obj
-                    except json.JSONDecodeError:
-                        continue
-
-        current = votes.get(bullet_id, {"id": bullet_id, "useful": 0, "harmful": 0, "used": 0})
-        current["used"] = int(current.get("used", 0)) + 1
-        current["updated_at"] = datetime.now(UTC).isoformat()
-
-        line = json.dumps(current) + "\n"
-        with path.open("a") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(line)
+        """Increment used counter in meta.json."""
+        meta = self._read_meta(slug)
+        bullets = meta.setdefault("bullets", {})
+        b = bullets.setdefault(bullet_id, {"useful": 0, "harmful": 0, "used": 0})
+        b["used"] = int(b.get("used", 0)) + 1
+        b["updated_at"] = datetime.now(UTC).isoformat()
+        self._write_meta(slug, meta)
 
     # ------------------------------------------------------------------
     # Internal

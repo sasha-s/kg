@@ -1,0 +1,16 @@
+{"v": 1, "slug": "kg-stop-hook", "title": "kg-stop-hook", "type": "concept", "created_at": "2026-02-20T07:27:50.380864+00:00"}
+{"id": "b-6e77018e", "type": "gotcha", "text": "Stop hook fires after every Claude response (not session end) \u2014 throttle with a lock file (120s) to avoid spawning N sonnet processes in an N-turn session.", "created_at": "2026-02-20T07:27:50.381046+00:00"}
+{"id": "b-d4a26e85", "type": "gotcha", "text": "claude --resume resolves the session transcript from ~/.claude/projects/<cwd-hash>/<session_id>.jsonl \u2014 cwd-hash is derived from the cwd when the session was CREATED, not the hook event cwd. Fix: search ~/.claude/projects/*/<session_id>.jsonl and read cwd from first entry.", "created_at": "2026-02-20T07:27:55.562463+00:00"}
+{"id": "b-d77a614a", "type": "gotcha", "text": "claude --resume needs the session's original cwd \u2014 search ~/.claude/projects/ for the transcript file and read cwd from its first entry [kg-architecture]", "created_at": "2026-02-20T07:28:02.703692+00:00"}
+{"id": "b-00cbf373", "type": "fact", "text": "Use sys.executable (not hardcoded 'python') when installing hooks \u2014 ensures the Python with kg installed runs the hook. Same pattern as mg.", "created_at": "2026-02-20T07:28:24.611015+00:00"}
+{"id": "b-59ffbbe5", "type": "gotcha", "text": "cwd for --resume: use data[\"cwd\"] from the hook event directly \u2014 it IS the session project root. Do NOT read session JSONL files in the hook (session-finding logic belongs in kg context -s via transcript.py).", "created_at": "2026-02-20T07:35:27.484229+00:00"}
+{"id": "b-7f6919f2", "type": "gotcha", "text": "cwd for --resume: use data[\"cwd\"] from the hook event directly \u2014 it IS the session project root. Do NOT read session JSONL files in the hook.", "created_at": "2026-02-20T07:35:50.354562+00:00"}
+{"id": "b-6b354ecd", "type": "gotcha", "text": "cwd for --resume: use data[\"cwd\"] from the hook event directly \u2014 it IS the session project root. Do NOT read session JSONL files in the hook.", "created_at": "2026-02-20T07:36:19.475162+00:00"}
+{"id": "b-e1243c9f", "type": "gotcha", "text": "cwd for --resume: use data[\"cwd\"] from the hook event directly \u2014 it IS the session project root. Do NOT read session JSONL files in the hook.", "created_at": "2026-02-20T07:38:05.876107+00:00"}
+{"id": "b-d4a26e85", "deleted": true}
+{"id": "b-d77a614a", "deleted": true}
+{"id": "b-7f6919f2", "deleted": true}
+{"id": "b-6b354ecd", "deleted": true}
+{"id": "b-e1243c9f", "deleted": true}
+{"id": "b-5f0253d7", "type": "note", "text": "test bullet UPDATED", "created_at": "2026-02-20T08:06:03.794622+00:00", "updated_at": "2026-02-20T08:06:08.232783+00:00"}
+{"id": "b-5f0253d7", "deleted": true}

@@ -67,14 +67,23 @@ kg add _fleeting-<session_id[:12]> "confirmed: Z works because W" --type fact
 
 ---
 
-## Step 1: Search for relevant context
+## Step 1: Search for relevant context + vote
 
 For each distinct topic from the fleeting node (or transcript if no fleeting node):
 ```
-kg context "topic from the session"
-kg context "another topic"
+kg context -s <session_id> "topic from the session"
+kg context -s <session_id> "another topic"
 ```
-Search every topic the session touched. Note `←b-xxxxxxxx` bullet IDs for voting.
+Pass `-s <session_id>` (the full session UUID given in your prompt) for session-aware scoring.
+Search every topic the session touched.
+
+After each `kg context` call, **vote on the bullets returned** based on whether they were
+actually useful for the session's work:
+```
+kg vote useful b-abc12345 b-def67890    # bullets that were accurate and relevant
+kg vote harmful b-11223344              # bullets that were wrong, misleading, or outdated
+```
+Only vote on bullets you have genuine signal about from this session. Skip neutral ones.
 
 ---
 
@@ -152,36 +161,11 @@ Rules:
 
 - [ ] Checked _fleeting-<session> for captures; filled any gaps
 - [ ] Searched graph for every distinct topic touched
+- [ ] Voted on returned bullets (`kg vote useful/harmful <ids>`) where you have signal
 - [ ] Promoted worthy bullets to concept nodes (with [cross-refs])
 - [ ] Called `kg review <slug>` on any over-budget nodes (⚠)
 - [ ] Added session anchor (intent + outcome required)
 """
-
-
-def _find_session_cwd(session_id: str) -> str | None:
-    """Find the cwd from the session transcript file.
-
-    claude stores transcripts at ~/.claude/projects/<cwd-hash>/<session_id>.jsonl.
-    The <cwd-hash> is not trivially reversible, so we search all project dirs
-    and read the cwd from the first line of the matching transcript.
-    """
-    projects_dir = Path.home() / ".claude" / "projects"
-    for project_dir in projects_dir.iterdir():
-        transcript = project_dir / f"{session_id}.jsonl"
-        if transcript.exists():
-            try:
-                with transcript.open() as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        entry = json.loads(line)
-                        cwd = entry.get("cwd")
-                        if cwd:
-                            return cwd
-            except Exception:  # noqa: S110
-                pass
-    return None
 
 
 def _log(session_id: str, msg: str) -> None:
@@ -214,18 +198,13 @@ def main() -> None:
     if not session_id:
         sys.exit(0)
 
-    # Find the session transcript to get the original cwd.
-    # claude --resume resolves sessions under ~/.claude/projects/<cwd-hash>/,
-    # which is derived from the cwd when the session was CREATED — not the
-    # hook event's cwd (which reflects the current working directory).
-    hook_cwd = data.get("cwd", "")
-    session_cwd = _find_session_cwd(session_id) or hook_cwd
+    cwd = data.get("cwd", "")
 
     # Find kg config from cwd
     try:
         from kg.config import load_config
 
-        cfg = load_config(Path(session_cwd) if session_cwd else None)
+        cfg = load_config(Path(cwd) if cwd else None)
     except Exception:
         sys.exit(0)
 
@@ -281,6 +260,9 @@ def main() -> None:
         "Bash(kg context *)",
         "Bash(kg review *)",
         "Bash(kg create *)",
+        "Bash(kg vote *)",
+        "Bash(kg update *)",
+        "Bash(kg delete *)",
         "--disable-slash-commands",
         "--resume",
         session_id,
@@ -293,8 +275,7 @@ def main() -> None:
         del env[key]
     env[_KG_NO_STOP_HOOK] = "1"
 
-    # Must run from the session's original cwd so claude resolves the transcript
-    run_cwd = session_cwd if session_cwd and Path(session_cwd).is_dir() else None
+    run_cwd = cwd if cwd and Path(cwd).is_dir() else None
 
     try:
         log_fh = log_file.open("a")
