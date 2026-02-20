@@ -25,7 +25,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from kg._vendor.fastcdc import fastcdc_py
+from kg._vendor.fastcdc import fastcdc_py  # Cython-accelerated if built, else pure Python
 
 if TYPE_CHECKING:
     from kg.config import SourceConfig
