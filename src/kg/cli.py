@@ -711,6 +711,26 @@ def serve(root: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# kg web
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--host", "-b", default=None, help="Bind address (default: kg.toml [server].web_host or 127.0.0.1)")
+@click.option("--port", "-p", default=None, type=int, help="Port (default: kg.toml [server].web_port or 7345)")
+def web(host: str | None, port: int | None) -> None:
+    """Start local web viewer with FTS+vector search.
+
+    \b
+    kg web                  # http://127.0.0.1:7345
+    kg web --port 8080
+    kg web --host 0.0.0.0   # expose on LAN
+    """
+    cfg = _load_cfg()
+    from kg.web import serve as _web_serve
+    _web_serve(cfg, host=host or cfg.server.web_host, port=port or cfg.server.web_port)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
