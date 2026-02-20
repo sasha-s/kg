@@ -182,31 +182,19 @@ def _log(session_id: str, msg: str) -> None:
 
 
 def _find_session_cwd(session_id: str) -> Path | None:
-    """Find the working directory for a session by scanning Claude's project dirs.
+    """Find the working directory for a session by locating its transcript file.
 
-    Claude stores sessions as ~/.claude/projects/<encoded-path>/<session_id>.jsonl.
-    The encoded path uses the project root dir with '/' replaced by '-' (leading '-'
-    means leading '/'). We find the transcript file and decode the path.
+    Claude stores sessions as ~/.claude/projects/<encoded-path>/<session_id>.jsonl
+    where encoded-path = "-" + abs_path.lstrip("/").replace("/", "-").
+    Decode: replace all "-" with "/" (lossy for paths containing "-", but
+    we verify the candidate exists as a directory).
     """
     projects_dir = Path.home() / ".claude" / "projects"
-    if not projects_dir.exists():
-        return None
-    for proj_dir in projects_dir.iterdir():
-        if not proj_dir.is_dir():
-            continue
-        if (proj_dir / f"{session_id}.jsonl").exists():
-            # Decode: leading '-' → leading '/', remaining '-' separated by '/'.
-            # e.g. '-workspace-kg' → '/workspace/kg', '-workspace' → '/workspace'
-            encoded = proj_dir.name
-            if encoded.startswith("-"):
-                # Split on '-' but only where they represent path separators.
-                # The encoding is: path.replace('/', '-') with a leading '-' for '/'.
-                # Reverse: replace all '-' with '/' then prepend nothing (already starts with /).
-                # BUT directory names may contain '-', so we can't blindly replace.
-                # The safest approach: turn '-' → '/' and check if the path exists.
-                candidate = Path(encoded.replace("-", "/"))
-                if candidate.is_dir():
-                    return candidate
+    for transcript in projects_dir.glob(f"*/{session_id}.jsonl"):
+        encoded = transcript.parent.name
+        candidate = Path(encoded.replace("-", "/"))
+        if candidate.is_dir():
+            return candidate
     return None
 
 

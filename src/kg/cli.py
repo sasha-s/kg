@@ -995,6 +995,12 @@ def start(scope: str) -> None:
     else:
         click.echo("  - stop hook disabled  (set [hooks] stop = true in kg.toml to re-enable)")
 
+    # 6. .claude symlink
+    from kg.install import ensure_dot_claude_symlink
+    ok, msg = ensure_dot_claude_symlink(cfg)
+    marker = "✓" if ok else "~"
+    click.echo(f"  {marker} .claude symlink: {msg}")
+
     click.echo("\nDone. Run `kg status` to verify.")
 
 

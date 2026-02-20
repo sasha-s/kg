@@ -190,6 +190,26 @@ def ensure_stop_hook_installed() -> tuple[bool, str]:
     return True, f"stop hook installed in {path}"
 
 
+def ensure_dot_claude_symlink(cfg: KGConfig) -> tuple[bool, str]:
+    """Create <project_root>/.claude → .kg symlink. Idempotent.
+
+    This lets Claude Code find local settings/commands in .kg/ when running
+    inside the project directory, same pattern as mg's .claude → .memory_graph.
+    """
+    dot_claude = cfg.root / ".claude"
+    target_name = cfg.index_dir.parent.name  # ".kg" (relative)
+
+    if dot_claude.is_symlink():
+        if dot_claude.resolve() == cfg.kg_dir.resolve():
+            return True, f".claude symlink already points to {target_name}"
+        return False, f".claude symlink exists but points elsewhere ({dot_claude.readlink()}), skipping"
+    if dot_claude.exists():
+        return False, ".claude exists as a real directory — skipping symlink creation"
+
+    dot_claude.symlink_to(target_name)
+    return True, f"Created .claude → {target_name}"
+
+
 def list_all_hooks(settings_path: Path | None = None) -> list[dict[str, Any]]:
     """Return all hooks from ~/.claude/settings.json as a flat list.
 
