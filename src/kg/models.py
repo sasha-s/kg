@@ -57,7 +57,7 @@ class FileBullet:
 
 
 # Threshold: flag for review above this many accumulated chars served
-_REVIEW_BUDGET_THRESHOLD = 500.0
+_REVIEW_BUDGET_THRESHOLD = 3000.0
 
 
 @dataclass

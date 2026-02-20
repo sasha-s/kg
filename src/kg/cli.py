@@ -165,10 +165,70 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
 # kg show
 # ---------------------------------------------------------------------------
 
+def _show_backlinks(slug: str, cfg: KGConfig, limit: int = 10) -> None:
+    """Print bullets from other nodes that reference [slug], ranked by node embedding similarity."""
+    if not cfg.db_path.exists():
+        return
+    conn = _get_db_conn(cfg)
+    pattern = f"%[{slug}]%"
+    rows = conn.execute(
+        """SELECT b.id, b.node_slug, n.title, b.text
+           FROM bullets b
+           JOIN nodes n ON b.node_slug = n.slug
+           WHERE b.text LIKE ? AND b.node_slug != ?
+           ORDER BY b.node_slug
+           LIMIT 100""",
+        (pattern, slug),
+    ).fetchall()
+
+    if not rows:
+        conn.close()
+        return
+
+    # Try to rank by embedding cosine similarity to this node
+    target_row = conn.execute(
+        "SELECT vector FROM embeddings WHERE node_slug = ?", (slug,)
+    ).fetchone()
+
+    scored: list[tuple[float, tuple]] = []
+    if target_row:
+        try:
+            import numpy as np
+            target_vec = np.frombuffer(target_row[0], dtype=np.float32).copy()
+            tnorm = float(np.linalg.norm(target_vec))
+            if tnorm:
+                target_vec /= tnorm
+            node_vecs: dict[str, float] = {}
+            for row in rows:
+                ns = row[1]
+                if ns not in node_vecs:
+                    emb_row = conn.execute(
+                        "SELECT vector FROM embeddings WHERE node_slug = ?", (ns,)
+                    ).fetchone()
+                    if emb_row:
+                        v = np.frombuffer(emb_row[0], dtype=np.float32).copy()
+                        vnorm = float(np.linalg.norm(v))
+                        node_vecs[ns] = float(np.dot(target_vec, v / vnorm)) if vnorm else 0.0
+                    else:
+                        node_vecs[ns] = 0.0
+                scored.append((node_vecs[ns], row))
+            scored.sort(key=lambda x: x[0], reverse=True)
+        except Exception:
+            scored = [(0.0, r) for r in rows]
+    else:
+        scored = [(0.0, r) for r in rows]
+
+    conn.close()
+    click.echo(f"\nReferenced by ({min(len(scored), limit)}):")
+    for _score, (bid, node_slug, _title, text) in scored[:limit]:
+        click.echo(f"  [{node_slug}] {text}  ←{bid}")
+
+
 @cli.command()
 @click.argument("slug")
 @click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
-def show(slug: str, max_width: int) -> None:
+@click.option("--no-backlinks", is_flag=True, help="Skip backlinks section")
+def show(slug: str, max_width: int, no_backlinks: bool) -> None:
     """Show all bullets for a node."""
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
@@ -184,7 +244,8 @@ def show(slug: str, max_width: int) -> None:
     if hint:
         bar = "─" * 60
         click.echo(bar)
-        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {len(live)} bullets  see [node-review]")
+        see_ref = "" if slug == "node-review" else "  see [node-review]"
+        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {len(live)} bullets{see_ref}")
         click.echo(f"  Run `kg review {slug}` when done.")
         click.echo(bar)
     for b in live:
@@ -192,6 +253,8 @@ def show(slug: str, max_width: int) -> None:
         vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
         text = (b.text[:max_width] + "…") if max_width and len(b.text) > max_width else b.text
         click.echo(f"  {prefix}{text}  ←{b.id}{vote_info}")
+    if not no_backlinks:
+        _show_backlinks(slug, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -223,28 +286,24 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         click.echo(f"Marked reviewed: [{slug}] {node.title}  (budget cleared)")
         return
 
-    # List nodes needing review
-    if not cfg.use_turso and not cfg.db_path.exists():
-        click.echo("No index found — run `kg reindex` first")
+    # List nodes needing review — read from files (always current, never stale)
+    if not cfg.nodes_dir.exists():
+        click.echo("No nodes directory found — run `kg init` first")
         return
-    conn = _get_db_conn(cfg)
-    rows = conn.execute(
-        """SELECT slug, title, bullet_count, token_budget, last_reviewed
-           FROM nodes
-           WHERE token_budget >= ? AND type NOT LIKE '_%'
-           ORDER BY token_budget DESC
-           LIMIT ?""",
-        (effective_threshold, limit),
-    ).fetchall()
-    conn.close()
-    if not rows:
+    store = FileStore(cfg.nodes_dir)
+    candidates = sorted(
+        (n for n in store.iter_nodes() if not n.slug.startswith("_") and n.token_budget >= effective_threshold),
+        key=lambda n: n.token_budget,
+        reverse=True,
+    )[:limit]
+    if not candidates:
         click.echo(f"No nodes above {int(effective_threshold)} credits — graph looks healthy.")
         return
     click.echo(f"{'Credits':>8}  {'Bullets':>7}  Node")
     click.echo("-" * 50)
-    for row_slug, title, bullet_count, budget, last_reviewed in rows:
-        reviewed = f"  last reviewed {last_reviewed[:10]}" if last_reviewed else ""
-        click.echo(f"{int(budget):>8}  {bullet_count or 0:>7}  [{row_slug}] {title}{reviewed}")
+    for n in candidates:
+        reviewed = f"  last reviewed {n.last_reviewed[:10]}" if n.last_reviewed else ""
+        click.echo(f"{int(n.token_budget):>8}  {len(n.live_bullets):>7}  [{n.slug}] {n.title}{reviewed}")
 
 
 # ---------------------------------------------------------------------------

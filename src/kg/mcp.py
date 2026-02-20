@@ -185,21 +185,18 @@ class KGServer:
     def _call_memory_review(self, args: dict[str, Any]) -> str:
         threshold = float(args.get("threshold", self._cfg.review.budget_threshold))
         limit = int(args.get("limit", 20))
-        from kg.db import get_conn as _get_db_conn
-        conn = _get_db_conn(self._cfg)
-        rows = conn.execute(
-            """SELECT slug, title, bullet_count, token_budget
-               FROM nodes
-               WHERE token_budget >= ? AND type NOT LIKE '_%'
-               ORDER BY token_budget DESC LIMIT ?""",
-            (threshold, limit),
-        ).fetchall()
-        conn.close()
-        if not rows:
+        # Read from files — SQLite token_budget can be stale between reindexes
+        store = FileStore(self._cfg.nodes_dir)
+        candidates = sorted(
+            (n for n in store.iter_nodes() if not n.slug.startswith("_") and n.token_budget >= threshold),
+            key=lambda n: n.token_budget,
+            reverse=True,
+        )[:limit]
+        if not candidates:
             return "No nodes need review — graph looks healthy."
         lines = [f"{'Credits':>8}  {'Bullets':>7}  Node", "-" * 50]
-        for slug, title, bc, budget in rows:
-            lines.append(f"{int(budget):>8}  {bc or 0:>7}  [{slug}] {title}")
+        for n in candidates:
+            lines.append(f"{int(n.token_budget):>8}  {len(n.live_bullets):>7}  [{n.slug}] {n.title}")
         return "\n".join(lines)
 
     def _call_memory_add_bullet(self, args: dict[str, Any]) -> str:
