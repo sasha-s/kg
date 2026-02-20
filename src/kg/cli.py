@@ -14,6 +14,7 @@ Commands:
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import click
@@ -24,7 +25,7 @@ from kg.context import build_context
 from kg.daemon import ensure_watcher, stop_watcher, watcher_status
 from kg.file_indexer import collect_files, index_source
 from kg.indexer import index_node, rebuild_all, search_fts
-from kg.install import ensure_hook_installed, ensure_mcp_registered, mcp_health
+from kg.install import ensure_hook_installed, ensure_mcp_registered, hook_status, mcp_health
 from kg.mcp import run_server
 from kg.reader import FileStore
 from kg.watcher import run_from_config
@@ -429,16 +430,43 @@ def start(scope: str) -> None:
 
 @cli.command()
 def status() -> None:
-    """Show status of watcher, MCP server, and hook."""
+    """Show project stats and status of watcher, MCP server, and hook."""
     cfg = _load_cfg()
-    store = FileStore(cfg.nodes_dir)
-    node_count = len(store.list_slugs())
 
-    click.echo(f"Project   : {cfg.name} ({cfg.root})")
-    click.echo(f"Nodes     : {node_count} ({cfg.nodes_dir})")
-    click.echo(f"Index     : {cfg.db_path}")
+    click.echo(f"Project   : {cfg.name}  ({cfg.root})")
+
+    # Node + bullet stats from SQLite (fast)
+    if cfg.db_path.exists():
+        conn = sqlite3.connect(str(cfg.db_path))
+        row = conn.execute(
+            "SELECT COUNT(*), SUM(bullet_count) FROM nodes WHERE type NOT LIKE '_%'"
+        ).fetchone()
+        n_nodes, n_bullets = (row[0] or 0), (row[1] or 0)
+        review_count = conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE token_budget >= ? AND type NOT LIKE '_%'",
+            (cfg.review.budget_threshold,),
+        ).fetchone()[0]
+        conn.close()
+        review_hint = f"  ⚠ {review_count} need review" if review_count else ""
+        click.echo(f"Nodes     : {n_nodes} nodes, {n_bullets} bullets{review_hint}")
+        db_mtime = cfg.db_path.stat().st_mtime
+        age_s = int(time.time() - db_mtime)
+        if age_s < 120:
+            age = f"{age_s}s ago"
+        elif age_s < 3600:
+            age = f"{age_s // 60}m ago"
+        else:
+            age = f"{age_s // 3600}h ago"
+        click.echo(f"Index     : {cfg.db_path}  (updated {age})")
+    else:
+        store = FileStore(cfg.nodes_dir)
+        n_nodes = len(store.list_slugs())
+        click.echo(f"Nodes     : {n_nodes} (no index — run `kg reindex`)")
+        click.echo(f"Index     : {cfg.db_path}  (missing)")
+
     click.echo(f"Watcher   : {watcher_status(cfg)}")
     click.echo(f"MCP       : {mcp_health(cfg)}")
+    click.echo(f"Hook      : {hook_status()}")
 
 
 @cli.command()

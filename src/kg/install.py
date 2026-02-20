@@ -114,4 +114,15 @@ def mcp_health(_cfg: KGConfig) -> str:
     )
     if _MCP_SERVER_NAME in result.stdout:
         return f"registered ('{_MCP_SERVER_NAME}')"
-    return "not registered"
+    return "not registered — run `kg start` to register"
+
+
+def hook_status() -> str:
+    """Return hook installation status string."""
+    path = _claude_settings_path()
+    settings = _load_settings(path)
+    for entry in settings.get("hooks", {}).get("UserPromptSubmit", []):
+        for h in entry.get("hooks", []):
+            if h.get("command") == _HOOK_COMMAND:
+                return "installed"
+    return "not installed — run `kg start` to install"
