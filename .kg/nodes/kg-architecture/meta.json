@@ -1,0 +1,17 @@
+{
+  "token_budget": 316.0,
+  "bullets": {
+    "b-1dab7d6b": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-20T08:33:19.003307+00:00"
+    },
+    "b-1792b87b": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-20T08:33:19.004179+00:00"
+    }
+  }
+}
