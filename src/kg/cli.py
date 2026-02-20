@@ -13,18 +13,27 @@ Commands:
 
 from __future__ import annotations
 
-import sys
+import sqlite3
 from pathlib import Path
 
 import click
 
+from kg.bootstrap import bootstrap_patterns
+from kg.config import KGConfig, SourceConfig, init_config, load_config
+from kg.context import build_context
+from kg.daemon import ensure_watcher, stop_watcher, watcher_status
+from kg.file_indexer import collect_files, index_source
+from kg.indexer import index_node, rebuild_all, search_fts
+from kg.install import ensure_hook_installed, ensure_mcp_registered, mcp_health
+from kg.mcp import run_server
+from kg.reader import FileStore
+from kg.watcher import run_from_config
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load_cfg(ctx: click.Context) -> "KGConfig":  # type: ignore[name-defined]
-    from kg.config import load_config
+def _load_cfg() -> KGConfig:
     try:
         return load_config()
     except Exception as exc:
@@ -50,9 +59,6 @@ def cli() -> None:
 @click.option("--dir", "root", default=".", show_default=True, help="Project root")
 def init(name: str | None, root: str) -> None:
     """Create kg.toml and .kg/ directories in the current project."""
-    from kg.config import init_config, load_config
-    from kg.indexer import rebuild_all
-
     root_path = Path(root).resolve()
     try:
         config_path = init_config(root_path, name=name)
@@ -68,7 +74,6 @@ def init(name: str | None, root: str) -> None:
     n = rebuild_all(cfg.nodes_dir, cfg.db_path)
     click.echo(f"Indexed {n} nodes")
 
-    from kg.bootstrap import bootstrap_patterns
     slugs = bootstrap_patterns(cfg)
     if slugs:
         click.echo(f"Bootstrapped patterns: {', '.join(slugs)}")
@@ -79,22 +84,18 @@ def init(name: str | None, root: str) -> None:
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.pass_context
-def reindex(ctx: click.Context) -> None:
+def reindex() -> None:
     """Rebuild SQLite index from all node.jsonl files."""
-    from kg.indexer import rebuild_all
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     cfg.ensure_dirs()
     n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True)
     click.echo(f"Indexed {n} nodes")
 
 
 @cli.command()
-@click.pass_context
-def upgrade(ctx: click.Context) -> None:
+def upgrade() -> None:
     """Rebuild index and apply any schema migrations (safe to run anytime)."""
-    from kg.indexer import rebuild_all
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     cfg.ensure_dirs()
     n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True)
     click.echo(f"Upgraded: indexed {n} nodes")
@@ -112,13 +113,9 @@ BULLET_TYPES = ["fact", "gotcha", "decision", "task", "note", "success", "failur
 @click.argument("text")
 @click.option("--type", "bullet_type", default="fact", type=click.Choice(BULLET_TYPES), show_default=True)
 @click.option("--status", default=None, type=click.Choice(["pending", "completed", "archived"]))
-@click.pass_context
-def add(ctx: click.Context, slug: str, text: str, bullet_type: str, status: str | None) -> None:
+def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
     """Add a bullet to a node (auto-creates node if missing)."""
-    from kg.indexer import index_node
-    from kg.reader import FileStore
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     bullet = store.add_bullet(slug, text=text, bullet_type=bullet_type, status=status)
     index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
@@ -131,12 +128,9 @@ def add(ctx: click.Context, slug: str, text: str, bullet_type: str, status: str 
 
 @cli.command()
 @click.argument("slug")
-@click.pass_context
-def show(ctx: click.Context, slug: str) -> None:
+def show(slug: str) -> None:
     """Show all bullets for a node."""
-    from kg.reader import FileStore
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     node = store.get(slug)
     if node is None:
@@ -167,18 +161,14 @@ def show(ctx: click.Context, slug: str) -> None:
 @click.argument("slug", required=False)
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--threshold", default=None, type=float, help="Min token_budget to list (default: from kg.toml [review])")
-@click.pass_context
-def review(ctx: click.Context, slug: str | None, limit: int, threshold: float | None) -> None:
+def review(slug: str | None, limit: int, threshold: float | None) -> None:
     """List nodes needing review, or mark a node as reviewed.
 
     \b
     kg review              # list nodes ordered by budget
     kg review <slug>       # mark as reviewed — clears budget
     """
-    from kg.indexer import index_node
-    from kg.reader import FileStore
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     effective_threshold = threshold if threshold is not None else cfg.review.budget_threshold
 
     if slug:
@@ -193,7 +183,6 @@ def review(ctx: click.Context, slug: str | None, limit: int, threshold: float | 
         return
 
     # List nodes needing review
-    import sqlite3
     if not cfg.db_path.exists():
         click.echo("No index found — run `kg reindex` first")
         return
@@ -225,12 +214,9 @@ def review(ctx: click.Context, slug: str | None, limit: int, threshold: float | 
 @click.argument("query")
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
-@click.pass_context
-def search(ctx: click.Context, query: str, limit: int, flat: bool) -> None:
+def search(query: str, limit: int, flat: bool) -> None:
     """FTS5 search over bullets."""
-    from kg.indexer import search_fts
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     rows = search_fts(query, cfg.db_path, limit=limit)
     if not rows:
         click.echo("(no results)")
@@ -263,31 +249,28 @@ def search(ctx: click.Context, query: str, limit: int, flat: bool) -> None:
 @click.option("--max-tokens", default=1000, show_default=True)
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--query-file", "-Q", default=None, type=click.Path(exists=True))
-@click.pass_context
 def context(
-    ctx: click.Context,
     query: str | None,
-    compact: bool,
+    compact: bool,  # noqa: ARG001  (reserved for future non-compact mode)
     session: str | None,
     max_tokens: int,
     limit: int,
     query_file: str | None,
 ) -> None:
     """Packed context output for LLM injection."""
-    from kg.context import build_context
-
     if query_file:
         query = Path(query_file).read_text().strip()
     if not query:
         raise click.ClickException("Provide QUERY or --query-file")
 
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     result = build_context(
         query,
         db_path=cfg.db_path,
         nodes_dir=cfg.nodes_dir,
         max_tokens=max_tokens,
         limit=limit,
+        session_id=session,
         review_threshold=cfg.review.budget_threshold,
     )
 
@@ -312,9 +295,7 @@ def context(
 @click.option("--dry-run", is_flag=True)
 @click.option("--verbose", "-v", is_flag=True)
 @click.option("--watch", is_flag=True, help="Keep running: reindex on changes (uses inotify/poll)")
-@click.pass_context
 def index(
-    ctx: click.Context,
     path: str | None,
     source_name: str | None,
     include: tuple[str, ...],
@@ -333,22 +314,16 @@ def index(
       kg index --source workspace  # index a named [[sources]] entry
       kg index --watch             # inotify watcher mode
     """
-    from kg.config import SourceConfig
-    from kg.file_indexer import index_source
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     cfg.ensure_dirs()
 
     if watch:
-        # Hand off to watcher daemon (blocks)
-        from kg.watcher import run_from_config
         click.echo("Starting watcher (Ctrl+C to stop)...")
         run_from_config(cfg.root)
         return
 
     # Build list of sources to index
     if path:
-        # One-off source from CLI args
         src = SourceConfig(
             path=path,
             name="",
@@ -376,7 +351,6 @@ def index(
         click.echo(f"Indexing: {label} ({src.abs_path})")
 
         if dry_run:
-            from kg.file_indexer import collect_files
             files = collect_files(src)
             click.echo(f"  Would index {len(files)} files (dry run)")
             continue
@@ -399,11 +373,9 @@ def index(
 
 @cli.command()
 @click.option("--overwrite", is_flag=True, help="Re-install even if pattern nodes already exist")
-@click.pass_context
-def bootstrap(ctx: click.Context, overwrite: bool) -> None:
+def bootstrap(overwrite: bool) -> None:
     """Load bundled pattern nodes into the graph (fleeting-notes, graph-first-workflow, etc.)."""
-    from kg.bootstrap import bootstrap_patterns
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     slugs = bootstrap_patterns(cfg, overwrite=overwrite)
     if slugs:
         click.echo(f"Bootstrapped: {', '.join(slugs)}")
@@ -417,14 +389,9 @@ def bootstrap(ctx: click.Context, overwrite: bool) -> None:
 
 @cli.command()
 @click.option("--scope", default="user", type=click.Choice(["user", "local", "project"]), show_default=True, help="Claude MCP scope")
-@click.pass_context
-def start(ctx: click.Context, scope: str) -> None:
+def start(scope: str) -> None:
     """Ensure everything is running: index, watcher, MCP server, hooks."""
-    from kg.daemon import ensure_watcher
-    from kg.indexer import rebuild_all
-    from kg.install import ensure_hook_installed, ensure_mcp_registered
-
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     cfg.ensure_dirs()
 
     # 1. Reindex
@@ -435,7 +402,6 @@ def start(ctx: click.Context, scope: str) -> None:
     # 2. Index file sources
     if cfg.sources:
         click.echo(f"Indexing {len(cfg.sources)} file source(s)...")
-        from kg.file_indexer import index_source
         for src in cfg.sources:
             stats = index_source(src, db_path=cfg.db_path)
             parts = [f"{v} {k}" for k, v in stats.items() if v]
@@ -443,16 +409,16 @@ def start(ctx: click.Context, scope: str) -> None:
 
     # 3. Watcher
     click.echo("Starting watcher...")
-    method, status = ensure_watcher(cfg)
-    click.echo(f"  ✓ Watcher [{method}]: {status}")
+    method, wstatus = ensure_watcher(cfg)
+    click.echo(f"  ✓ Watcher [{method}]: {wstatus}")
 
-    # 3. MCP server
+    # 4. MCP server
     click.echo("Registering MCP server...")
     ok, msg = ensure_mcp_registered(scope=scope)
     marker = "✓" if ok else "✗"
     click.echo(f"  {marker} {msg}")
 
-    # 4. Hook
+    # 5. Hook
     click.echo("Installing session_context hook...")
     ok, msg = ensure_hook_installed()
     marker = "✓" if ok else "✗"
@@ -462,15 +428,9 @@ def start(ctx: click.Context, scope: str) -> None:
 
 
 @cli.command()
-@click.pass_context
-def status(ctx: click.Context) -> None:
+def status() -> None:
     """Show status of watcher, MCP server, and hook."""
-    from kg.daemon import watcher_status
-    from kg.install import mcp_health
-
-    cfg = _load_cfg(ctx)
-
-    from kg.reader import FileStore
+    cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     node_count = len(store.list_slugs())
 
@@ -482,11 +442,9 @@ def status(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.pass_context
-def stop(ctx: click.Context) -> None:
+def stop() -> None:
     """Stop the background watcher (if running via PID file)."""
-    from kg.daemon import stop_watcher
-    cfg = _load_cfg(ctx)
+    cfg = _load_cfg()
     result = stop_watcher(cfg)
     click.echo(f"Watcher: {result}")
 
@@ -499,7 +457,6 @@ def stop(ctx: click.Context) -> None:
 @click.option("--root", default=None, help="Override project root (default: auto-detect from cwd)")
 def serve(root: str | None) -> None:
     """Start stdio MCP server (connect via Claude Code MCP config)."""
-    from kg.mcp import run_server
     root_path = Path(root).resolve() if root else None
     run_server(root_path)
 

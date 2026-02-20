@@ -56,6 +56,10 @@ class FileBullet:
         return {"id": self.id, "deleted": True}
 
 
+# Threshold: flag for review above this many accumulated chars served
+_REVIEW_BUDGET_THRESHOLD = 500.0
+
+
 @dataclass
 class FileNode:
     """A node loaded from nodes/<slug>/node.jsonl."""
@@ -96,7 +100,3 @@ class FileNode:
             "type": self.type,
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
         }
-
-
-# Threshold: flag for review above this many accumulated chars served
-_REVIEW_BUDGET_THRESHOLD = 500.0

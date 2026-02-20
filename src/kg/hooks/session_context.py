@@ -42,7 +42,7 @@ def main() -> None:
     if cwd:
         context["cwd"] = cwd
 
-    print(json.dumps({  # noqa: T201
+    print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
             "additionalContext": json.dumps(context),

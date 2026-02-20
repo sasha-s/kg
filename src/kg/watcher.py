@@ -22,6 +22,11 @@ import sys
 import time
 from pathlib import Path
 
+from kg.config import load_config
+from kg.file_indexer import index_file
+from kg.file_indexer import index_source as _poll_index_source
+from kg.indexer import index_node
+
 logger = logging.getLogger("kg.watcher")
 
 _POLL_INTERVAL = 30.0      # seconds between periodic full-source polls
@@ -33,7 +38,6 @@ _INOTIFY_TIMEOUT_MS = 5000
 # ---------------------------------------------------------------------------
 
 def _index_node(slug: str, nodes_dir: Path, db_path: Path) -> None:
-    from kg.indexer import index_node
     try:
         index_node(slug, nodes_dir=nodes_dir, db_path=db_path)
         logger.info("node indexed: %s", slug)
@@ -42,7 +46,6 @@ def _index_node(slug: str, nodes_dir: Path, db_path: Path) -> None:
 
 
 def _index_source_file(path: Path, source_root: Path, source_name: str, db_path: Path, max_size_kb: int) -> None:
-    from kg.file_indexer import index_file
     try:
         rel = str(path.relative_to(source_root))
         index_file(path, rel_path=rel, source_name=source_name, db_path=db_path, max_size_kb=max_size_kb)
@@ -68,7 +71,7 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
 
     sources: list of {path: Path, name: str, max_size_kb: int}
     """
-    import inotify_simple  # type: ignore[import]
+    import inotify_simple  # type: ignore[import]  # noqa: PLC0415 — optional dep, checked via ImportError
 
     inotify = inotify_simple.INotify()
     flags = inotify_simple.flags  # type: ignore[attr-defined]
@@ -163,12 +166,11 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
 # ---------------------------------------------------------------------------
 
 def _poll_sources(sources: list[dict], db_path: Path) -> None:
-    from kg.file_indexer import index_source as _index_source
     for src in sources:
         try:
             cfg_src = src.get("config")
             if cfg_src is not None:
-                _index_source(cfg_src, db_path=db_path)
+                _poll_index_source(cfg_src, db_path=db_path)
         except Exception:
             logger.exception("poll failed for source: %s", src.get("name"))
 
@@ -234,7 +236,6 @@ def watch_poll(
 # ---------------------------------------------------------------------------
 
 def _load_sources(config_root: Path | None) -> tuple[Path, Path, list[dict]]:
-    from kg.config import load_config
     cfg = load_config(config_root)
     sources = [
         {

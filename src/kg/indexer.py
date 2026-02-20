@@ -14,6 +14,9 @@ import re
 import sqlite3
 from typing import TYPE_CHECKING
 
+from kg.file_indexer import ensure_file_schema
+from kg.reader import FileStore
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -92,14 +95,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     """)
     conn.commit()
     # Extend schema for file sources (idempotent)
-    from kg.file_indexer import ensure_file_schema
     ensure_file_schema(conn)
 
 
 def index_node(slug: str, *, nodes_dir: Path, db_path: Path) -> None:
     """Re-index a single node: wipe its rows and re-insert from node.jsonl."""
-    from kg.reader import FileStore
-
     store = FileStore(nodes_dir)
     node = store.get(slug)
 
@@ -148,7 +148,6 @@ def rebuild_all(nodes_dir: Path, db_path: Path, *, verbose: bool = False) -> int
     _ensure_schema(conn)
     conn.close()
 
-    from kg.reader import FileStore
     store = FileStore(nodes_dir)
     slugs = store.list_slugs()
 

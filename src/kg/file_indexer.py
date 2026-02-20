@@ -22,6 +22,7 @@ import re
 import sqlite3
 import subprocess
 from datetime import UTC, datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -129,8 +130,6 @@ def _git_files(source_path: Path) -> list[Path] | None:
 
 def _glob_files(source_path: Path, include: list[str], exclude: list[str]) -> list[Path]:
     """Glob-based file discovery respecting include/exclude patterns."""
-    from fnmatch import fnmatch
-
     def _excluded(rel: str) -> bool:
         return any(fnmatch(rel, pat.lstrip("/")) for pat in exclude)
 
@@ -155,7 +154,6 @@ def collect_files(source: SourceConfig) -> list[Path]:
     if source.use_git:
         git_files = _git_files(source_path)
         if git_files is not None:
-            from fnmatch import fnmatch
             include_pats = source.include
             exclude_pats = source.exclude
             result: list[Path] = []
@@ -316,12 +314,12 @@ def index_source(
     ).fetchall()
     conn.close()
 
-    for orphan_path, orphan_slug in orphans:
+    for orphan_path, _orphan_slug in orphans:
         if orphan_path not in current_abs:
             delete_file_index(Path(orphan_path), db_path)
             stats["deleted"] += 1
             if verbose:
-                print(f"  deleted: {orphan_path}")  # noqa: T201
+                print(f"  deleted: {orphan_path}")
 
     # Index current files
     for p in files:
@@ -368,7 +366,7 @@ def index_source(
                 stats["updated"] += 1
             if verbose:
                 action = "new" if was_new else "updated"
-                print(f"  {action}: {rel}")  # noqa: T201
+                print(f"  {action}: {rel}")
         else:
             stats["skipped"] += 1
 

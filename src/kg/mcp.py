@@ -17,9 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from kg.config import load_config
+from kg.context import build_context
+from kg.indexer import index_node, search_fts
+from kg.reader import FileStore
 
 _VERSION = "0.1.0"
 
@@ -118,12 +126,10 @@ def _tool_defs() -> list[dict[str, Any]]:
 
 class KGServer:
     def __init__(self, config_root: Path | None = None) -> None:
-        from kg.config import load_config
         self._cfg = load_config(config_root)
         self._cfg.ensure_dirs()
 
     def _call_memory_context(self, args: dict[str, Any]) -> str:
-        from kg.context import build_context
         result = build_context(
             args["query"],
             db_path=self._cfg.db_path,
@@ -137,7 +143,6 @@ class KGServer:
         return result.format_compact()
 
     def _call_memory_search(self, args: dict[str, Any]) -> str:
-        from kg.indexer import search_fts
         rows = search_fts(args["query"], self._cfg.db_path, limit=int(args.get("limit", 20)))
         if not rows:
             return "(no results)"
@@ -147,7 +152,6 @@ class KGServer:
         return "\n".join(lines)
 
     def _call_memory_show(self, args: dict[str, Any]) -> str:
-        from kg.reader import FileStore
         store = FileStore(self._cfg.nodes_dir)
         slug = args["slug"]
         node = store.get(slug)
@@ -170,8 +174,6 @@ class KGServer:
         return "\n".join(lines)
 
     def _call_memory_mark_reviewed(self, args: dict[str, Any]) -> str:
-        from kg.indexer import index_node
-        from kg.reader import FileStore
         slug = args["slug"]
         store = FileStore(self._cfg.nodes_dir)
         if not store.exists(slug):
@@ -181,7 +183,6 @@ class KGServer:
         return f"Marked reviewed: {slug}"
 
     def _call_memory_review(self, args: dict[str, Any]) -> str:
-        import sqlite3
         if not self._cfg.db_path.exists():
             return "No index — run kg reindex first"
         threshold = float(args.get("threshold", self._cfg.review.budget_threshold))
@@ -203,7 +204,6 @@ class KGServer:
         return "\n".join(lines)
 
     def _call_memory_add_bullet(self, args: dict[str, Any]) -> str:
-        from kg.reader import FileStore
         store = FileStore(self._cfg.nodes_dir)
         bullet = store.add_bullet(
             args["node_slug"],
@@ -211,7 +211,6 @@ class KGServer:
             bullet_type=args.get("bullet_type", "fact"),
             status=args.get("status"),
         )
-        from kg.indexer import index_node
         index_node(args["node_slug"], nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
         return bullet.id
 
@@ -236,7 +235,7 @@ async def _run_server(config_root: Path | None = None) -> None:
     loop = asyncio.get_event_loop()
     await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
 
-    writer_transport, writer_protocol = await loop.connect_write_pipe(
+    writer_transport, _writer_protocol = await loop.connect_write_pipe(
         asyncio.BaseProtocol, sys.stdout.buffer
     )
 

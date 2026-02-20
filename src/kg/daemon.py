@@ -10,10 +10,11 @@ import os
 import signal
 import subprocess
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from kg.config import KGConfig
 
 _SUPERVISORD_PROGRAM = "kg-watcher"
@@ -86,7 +87,7 @@ def _supervisord_running(cfg: KGConfig) -> bool:
 def _start_supervisord(cfg: KGConfig) -> bool:
     """Generate config and start supervisord. Returns True on success."""
     try:
-        import supervisord  # noqa: F401 — just check it's installed
+        import supervisord  # type: ignore[import-untyped]  # noqa: F401, PLC0415 — optional dep check
     except ImportError:
         return False
 
@@ -183,7 +184,6 @@ def watcher_status(cfg: KGConfig) -> str:
 
 
 def stop_watcher(cfg: KGConfig) -> str:
-    pid_file = _pid_file(cfg)
     if _stop_bg_watcher(cfg):
         return "stopped"
     # supervisord: let user handle it

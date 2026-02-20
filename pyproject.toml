@@ -47,6 +47,19 @@ ignore = [
     "COM812",   # trailing comma (conflicts with formatter)
     "ISC001",
     "SLF001",   # private member access OK in tests
+    "FBT001", "FBT002",  # boolean positional/default args OK in small CLIs
+    "S603", "S607",  # subprocess with trusted (non-user-input) paths OK
+    "TRY003", "EM101", "EM102",  # exception message style OK
+    "T201",     # print() OK in CLI tools
+    "PLR2004",  # magic values OK where meaning is clear from context
+    "ANN401",   # Any annotations OK
+    "C901", "PLR0912", "PLR0913", "PLR0915",  # complexity in build_context is acceptable
+    "TRY300",   # return-in-else-of-try is clear
+    "BLE001",   # broad except OK in explicit guard clauses (budget update, watcher)
+    "SIM102",   # nested if OK
+    "PERF401",  # list-comprehension not always clearer than explicit loop
+    "E501",     # line length managed by ruff format
+    "PLW2901",  # loop variable shadowing OK (e.g. building paths)
 ]
 
 [tool.basedpyright]

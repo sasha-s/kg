@@ -102,7 +102,7 @@ def ensure_hook_installed() -> tuple[bool, str]:
 # Health check
 # ---------------------------------------------------------------------------
 
-def mcp_health(cfg: KGConfig) -> str:
+def mcp_health(_cfg: KGConfig) -> str:
     """Quick health string."""
     if not shutil.which("claude"):
         return "claude CLI not found"

@@ -12,15 +12,16 @@ Budget clears on explicit review (kg show / memory_show).
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kg.indexer import get_backlinks, search_fts
+from kg.reader import FileStore
 
 if TYPE_CHECKING:
-    from kg.models import FileNode
+    from pathlib import Path
 
 _CROSSREF_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
 _INTERNAL_PREFIX = ("_",)
@@ -78,7 +79,7 @@ def build_context(
     nodes_dir: Path,
     max_tokens: int = 1000,
     limit: int = 20,
-    session_id: str | None = None,
+    session_id: str | None = None,  # noqa: ARG001  (reserved for differential context)
     seen_slugs: set[str] | None = None,
     update_budget: bool = True,
     review_threshold: float = 500.0,
@@ -88,8 +89,6 @@ def build_context(
     If update_budget=True (default), increments each served node's token_budget
     in meta.jsonl by the number of chars included in the output.
     """
-    from kg.reader import FileStore
-
     char_budget = max_tokens * 4  # rough: 1 token ≈ 4 chars
 
     raw = search_fts(query, db_path, limit=limit * 3)
@@ -168,11 +167,9 @@ def build_context(
     return PackedContext(nodes=packed_nodes, total_chars=total_chars)
 
 
-def _update_budgets(nodes: list[ContextNode], store: "FileStore") -> None:  # noqa: F821
+def _update_budgets(nodes: list[ContextNode], store: FileStore) -> None:
     """Increment each node's token_budget by chars served."""
     for ctx_node in nodes:
         chars = len(ctx_node.format_compact())
-        try:
+        with contextlib.suppress(Exception):  # never fail context output due to budget update
             store.update_node_budget(ctx_node.slug, chars)
-        except Exception:
-            pass  # never fail context output due to budget update

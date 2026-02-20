@@ -14,9 +14,13 @@ Pattern files live in src/kg/patterns/*.md with frontmatter:
 from __future__ import annotations
 
 import re
+import shutil
 from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from kg.indexer import index_node
+from kg.reader import FileStore
 
 if TYPE_CHECKING:
     from kg.config import KGConfig
@@ -62,9 +66,6 @@ def _patterns_dir() -> Path:
 
 def bootstrap_patterns(cfg: KGConfig, *, overwrite: bool = False) -> list[str]:
     """Load bundled patterns into the graph. Returns list of bootstrapped slugs."""
-    from kg.indexer import index_node
-    from kg.reader import FileStore
-
     store = FileStore(cfg.nodes_dir)
     bootstrapped: list[str] = []
 
@@ -86,10 +87,9 @@ def bootstrap_patterns(cfg: KGConfig, *, overwrite: bool = False) -> list[str]:
         # Create node (or recreate if overwrite)
         if overwrite and store.exists(slug):
             # Delete and recreate by removing the dir
-            import shutil
             shutil.rmtree(cfg.nodes_dir / slug)
 
-        node = store.create(slug, title, node_type)
+        store.create(slug, title, node_type)
         for btype, btext in bullets:
             store.add_bullet(slug, text=btext, bullet_type=btype)
 
