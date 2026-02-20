@@ -49,11 +49,10 @@ and promote durable knowledge into this network.
 
 ## Step 0: Check fleeting notes + fill gaps
 
-Look for the session's fleeting node:
+Look for the session's fleeting node (session ID is given in your prompt):
 ```
-kg show _fleeting-<session_id[:12]>
+kg show _fleeting-<short_id>
 ```
-(Use the first 12 chars of the session ID visible in the transcript header.)
 
 If it exists, read all bullets. Then scan the transcript above for discoveries NOT yet captured:
 - Confirmed facts, gotchas, decisions made
@@ -202,8 +201,21 @@ def main() -> None:
     if not cfg.hooks.stop:
         sys.exit(0)
 
-    # Write system prompt to log dir
+    # Throttle: skip if another extraction for this session spawned in the last 120s.
+    # Stop fires after every response; we only need one extraction per ~2 min.
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    lock_file = _LOG_DIR / f"stop-{session_id[:12]}.lock"
+    import time
+    now_ts = time.time()
+    try:
+        if lock_file.exists():
+            last = float(lock_file.read_text().strip())
+            if now_ts - last < 120:
+                sys.exit(0)
+        lock_file.write_text(str(now_ts))
+    except Exception:  # noqa: S110
+        pass
+
     prompt_file = _LOG_DIR / f"stop-{session_id[:12]}-prompt.txt"
     log_file = _LOG_DIR / f"stop-{session_id[:12]}.log"
 
@@ -213,6 +225,7 @@ def main() -> None:
         _log(session_id, f"failed to write prompt file: {exc}")
         sys.exit(0)
 
+    short_id = session_id[:12]
     # Build claude -p command: resume session as context, restricted kg tools, no persistence
     cmd = [
         "claude",
@@ -220,6 +233,8 @@ def main() -> None:
         (
             "STOP. The conversation above is CONTEXT ONLY — do not continue it. "
             "You are a KNOWLEDGE EXTRACTOR for kg. Read your system prompt for instructions. "
+            f"Session ID: {session_id}  (short: {short_id}). "
+            f"The fleeting node for this session is: _fleeting-{short_id}. "
             "Search the graph for relevant topics, process fleeting notes, "
             "and promote durable knowledge to concept nodes. Run kg commands now."
         ),
@@ -233,6 +248,7 @@ def main() -> None:
         "Bash(kg search *)",
         "Bash(kg context *)",
         "Bash(kg review *)",
+        "Bash(kg create *)",
         "--disable-slash-commands",
         "--resume",
         session_id,
