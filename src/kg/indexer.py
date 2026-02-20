@@ -32,9 +32,26 @@ _CROSSREF_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
 
 def _get_conn(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    # Detect 0-byte / corrupt DB before connecting — gives a clear error instead
+    # of an opaque "disk I/O error" on PRAGMA.  Happens on virtiofs (OrbStack/Docker)
+    # when WAL files get desynchronised; fix: kg stop && rm .kg/index/graph.db* && kg reindex && kg start
+    if db_path.exists() and db_path.stat().st_size == 0:
+        msg = (
+            f"SQLite DB is empty (0 bytes): {db_path}\n"
+            f"Fix: kg stop && rm {db_path}* && kg reindex && kg start"
+        )
+        raise sqlite3.OperationalError(msg)
     conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+    except sqlite3.OperationalError as exc:
+        conn.close()
+        raise sqlite3.OperationalError(
+            f"Failed to open DB {db_path} — may be corrupt (virtiofs/NFS issue).\n"
+            f"Fix: kg stop && rm {db_path}* && kg reindex && kg start\n"
+            f"Original error: {exc}"
+        ) from exc
     return conn
 
 

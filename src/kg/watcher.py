@@ -309,26 +309,23 @@ def watch_poll(
 # ---------------------------------------------------------------------------
 
 def _startup_index(nodes_dir: Path, db_path: Path, sources: list[dict] | None, cfg: KGConfig | None) -> None:
-    """Re-index all nodes and sources in a background thread on startup.
+    """Re-index all nodes and sources synchronously on startup.
 
+    Runs on the main thread BEFORE the event loop starts, so there is only one
+    DB writer at a time (avoids concurrent-write corruption on virtiofs/NFS).
     Ensures any nodes/files added while the watcher was stopped are indexed.
     Uses content-hash checking, so unchanged content is a no-op.
     """
-    import threading
-
-    def _do() -> None:
-        logger.info("startup: indexing all nodes")
-        if nodes_dir.exists():
-            for node_dir in nodes_dir.iterdir():
-                if node_dir.is_dir():
-                    slug = node_dir.name
-                    _index_node(slug, nodes_dir, db_path, cfg=cfg)
-        if sources:
-            logger.info("startup: indexing all sources")
-            _poll_sources(sources, db_path)
-        logger.info("startup: index complete")
-
-    threading.Thread(target=_do, daemon=True, name="kg-startup-index").start()
+    logger.info("startup: indexing all nodes")
+    if nodes_dir.exists():
+        for node_dir in nodes_dir.iterdir():
+            if node_dir.is_dir():
+                slug = node_dir.name
+                _index_node(slug, nodes_dir, db_path, cfg=cfg)
+    if sources:
+        logger.info("startup: indexing all sources")
+        _poll_sources(sources, db_path)
+    logger.info("startup: index complete")
 
 
 def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None, cfg: KGConfig | None = None) -> None:

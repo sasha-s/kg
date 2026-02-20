@@ -105,11 +105,40 @@ def init(name: str | None, root: str) -> None:
 
 @cli.command()
 def reindex() -> None:
-    """Rebuild SQLite index from all node.jsonl files."""
+    """Rebuild SQLite index from all node.jsonl files.
+
+    Stops the watcher first (if running) to avoid concurrent write corruption,
+    then restarts it after reindexing.
+    """
+    import sqlite3
+
     cfg = _load_cfg()
     cfg.ensure_dirs()
-    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
+
+    from kg.daemon import stop_watcher, watcher_status
+    was_running = watcher_status(cfg) != "stopped"
+    if was_running:
+        click.echo("Stopping watcher…")
+        stop_watcher(cfg)
+
+    # Remove corrupt/0-byte DB before rebuild so _get_conn starts fresh
+    if cfg.db_path.exists() and cfg.db_path.stat().st_size == 0:
+        click.echo(f"Removing empty DB: {cfg.db_path}")
+        for f in cfg.db_path.parent.glob(f"{cfg.db_path.name}*"):
+            f.unlink(missing_ok=True)
+
+    try:
+        n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
+    except sqlite3.OperationalError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from exc
+
     click.echo(f"Indexed {n} nodes")
+
+    if was_running:
+        from kg.daemon import ensure_watcher
+        click.echo("Restarting watcher…")
+        ensure_watcher(cfg)
 
 
 @cli.command()
@@ -142,8 +171,16 @@ def upgrade(no_reindex: bool) -> None:
         try:
             cfg = _load_cfg()
             cfg.ensure_dirs()
+            from kg.daemon import ensure_watcher, stop_watcher, watcher_status
+            was_running = watcher_status(cfg) != "stopped"
+            if was_running:
+                click.echo("Stopping watcher…")
+                stop_watcher(cfg)
             n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
             click.echo(f"Reindexed {n} nodes")
+            if was_running:
+                click.echo("Restarting watcher…")
+                ensure_watcher(cfg)
         except Exception:  # noqa: S110
             pass
 
