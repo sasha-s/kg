@@ -573,15 +573,35 @@ def _related_html(cfg: KGConfig, node: FileNode, exclude: set[str]) -> str:
     items: list[str] = []
     for r in results:
         s = r["slug"]
-        if s == node.slug or s in exclude or s.startswith("_"):
+        if s == node.slug or s in exclude:
             continue
-        title = _html.escape(r.get("title") or s)
-        items.append(
-            f'<div class="node-row">'
-            f'<span class="t"><a href="/node/{s}">{title}</a></span>'
-            f'<span class="m">[{_html.escape(s)}]</span>'
-            f'</div>'
-        )
+        if s.startswith("_") and not s.startswith("_doc-"):
+            continue
+        raw_title = r.get("title") or s
+        if s.startswith("_doc-"):
+            title_html = f'<a href="/node/{s}"><code style="font-size:12px">{_html.escape(raw_title)}</code></a>'
+            # Show first matching chunk as a short preview
+            chunk_text = r["bullets"][0]["text"] if r.get("bullets") else ""
+            preview = chunk_text[:200].replace("\n", " ").strip()
+            if len(chunk_text) > 200:
+                preview += "…"
+            preview_html = (
+                f'<span class="m" style="display:block;margin-top:2px;font-family:monospace;font-size:11px">'
+                f'{_html.escape(preview)}</span>'
+            ) if preview else ""
+            items.append(
+                f'<div class="node-row" style="flex-direction:column;align-items:flex-start">'
+                f'{title_html}{preview_html}'
+                f'</div>'
+            )
+        else:
+            title = _html.escape(raw_title)
+            items.append(
+                f'<div class="node-row">'
+                f'<span class="t"><a href="/node/{s}">{title}</a></span>'
+                f'<span class="m">[{_html.escape(s)}]</span>'
+                f'</div>'
+            )
         if len(items) >= 6:
             break
     if not items:
