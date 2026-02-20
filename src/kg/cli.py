@@ -25,6 +25,7 @@ from kg.context import build_context
 from kg.daemon import (
     ensure_vector_server,
     ensure_watcher,
+    reload_watcher,
     stop_vector_server,
     stop_watcher,
     vector_server_status,
@@ -1064,7 +1065,12 @@ def status() -> None:
     table.add_column("Metric", style="dim", no_wrap=True)
     table.add_column("Value", justify="right")
 
+    # --- Config ---
+    table.add_row("Config", str(cfg.root / "kg.toml"))
+    table.add_row("", "")
+
     # --- Nodes / bullets ---
+    n_nodes = 0
     if cfg.nodes_dir.exists():
         _store = FileStore(cfg.nodes_dir)
         _all = [n for n in _store.iter_nodes() if not n.slug.startswith("_")]
@@ -1095,6 +1101,18 @@ def status() -> None:
     else:
         table.add_row("Index", "[red]missing[/red]")
 
+    # Fetch embedding count and service status early — used by both Calibration and Services sections
+    import contextlib as _cl
+    n_emb = 0
+    if cfg.db_path.exists():
+        with _cl.suppress(Exception):
+            from kg.db import get_conn as _get_conn
+            _ec = _get_conn(cfg)
+            n_emb = _ec.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            _ec.close()
+
+    vs_status = vector_server_status(cfg)
+
     # --- Calibration ---
     table.add_row("", "")
     cal = get_calibration_status(cfg.db_path, cfg)
@@ -1112,11 +1130,17 @@ def status() -> None:
         fts_cal = get_calibration("fts", cfg.db_path, cfg)
         vec_cal = get_calibration("vector", cfg.db_path, cfg)
         if fts_cal:
-            brk = fts_cal[1]
-            table.add_row("  FTS scores", _score_spark(brk, ".2f"))
+            table.add_row("  FTS scores", _score_spark(fts_cal[1], ".2f"))
+        else:
+            table.add_row("  FTS scores", "[yellow]⚠ not calibrated — run `kg calibrate`[/yellow]")
         if vec_cal:
-            brk = vec_cal[1]
-            table.add_row("  Vec scores", _score_spark(brk, ".3f"))
+            table.add_row("  Vec scores", _score_spark(vec_cal[1], ".3f"))
+        elif n_emb == 0:
+            table.add_row("  Vec scores", "[dim]no embeddings yet — start vector server + run `kg calibrate`[/dim]")
+        elif vs_status == "stopped":
+            table.add_row("  Vec scores", "[yellow]⚠ not calibrated — vector server was stopped during last `kg calibrate`[/yellow]")
+        else:
+            table.add_row("  Vec scores", "[yellow]⚠ not calibrated — run `kg calibrate`[/yellow]")
 
     # --- Services ---
     table.add_row("", "")
@@ -1124,24 +1148,46 @@ def status() -> None:
     w_val = w_status if w_status != "stopped" else "[dim]stopped — run `kg start`[/dim]"
     table.add_row("Watcher", w_val)
 
-    vs_status = vector_server_status(cfg)
     vs_val = vs_status if vs_status != "stopped" else "[dim]stopped — run `kg start`[/dim]"
     table.add_row("Vectors", vs_val)
 
+    # Show embedding coverage
+    if n_nodes > 0:
+        pct = n_emb / n_nodes * 100
+        cov = f"{n_emb} / {n_nodes} nodes"
+        if n_emb == 0:
+            table.add_row("  Coverage", f"[dim]0 / {n_nodes} — none embedded yet[/dim]")
+        elif pct < 80:
+            table.add_row("  Coverage", f"[yellow]⚠ {cov} ({pct:.0f}%)[/yellow]")
+        else:
+            table.add_row("  Coverage", f"{cov} ({pct:.0f}%)")
+
     import os as _os
     emb_model = cfg.embeddings.model
-    if emb_model.lower().startswith("gemini:"):
+    lower_emb = emb_model.lower()
+    if lower_emb.startswith("gemini:"):
         has_key = bool(_os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY"))
         if has_key:
-            table.add_row("  Embeddings", f"{emb_model}")
+            table.add_row("  Embeddings", f"{emb_model}  [green](cloud, key set)[/green]")
         else:
             table.add_row(
                 "  Embeddings",
-                f"[red]⚠ {emb_model} — no GEMINI_API_KEY found[/red]\n"
+                f"[red]✗ {emb_model} — no GEMINI_API_KEY[/red]\n"
                 '[dim]  set key, or use local: model = "fastembed:BAAI/bge-small-en-v1.5"[/dim]',
             )
+    elif lower_emb.startswith("openai:"):
+        has_key = bool(_os.environ.get("OPENAI_API_KEY"))
+        if has_key:
+            table.add_row("  Embeddings", f"{emb_model}  [green](cloud, key set)[/green]")
+        else:
+            table.add_row("  Embeddings", f"[red]✗ {emb_model} — no OPENAI_API_KEY[/red]")
+    elif lower_emb.startswith("fastembed:") or ":" not in lower_emb:
+        table.add_row("  Embeddings", f"{emb_model}  [green](local, no key needed)[/green]")
     else:
-        table.add_row("  Embeddings", f"{emb_model}")
+        table.add_row(
+            "  Embeddings",
+            f"[yellow]⚠ {emb_model} — unknown provider (expected gemini:, fastembed:)[/yellow]",
+        )
 
     table.add_row("MCP", mcp_health(cfg))
 
@@ -1175,15 +1221,39 @@ def status() -> None:
             table.add_row(f"  {event}", f"[red]✗ {module} not installed — run `kg start`[/red]")
 
     # --- Sources ---
+    import subprocess as _sp
+
+    table.add_row("", "")
     if cfg.sources:
-        table.add_row("", "")
         table.add_row("Sources", str(len(cfg.sources)))
         for src in cfg.sources:
             name_part = f"[{src.name}]  " if src.name else ""
+            abs_p = src.abs_path
+            if not abs_p.exists():
+                path_ok = f"[red]✗ path not found: {abs_p}[/red]"
+            elif src.use_git:
+                r = _sp.run(
+                    ["git", "-C", str(abs_p), "rev-parse", "--git-dir"],
+                    capture_output=True,
+                    check=False,
+                )
+                path_ok = (
+                    "[green]✓ git[/green]"
+                    if r.returncode == 0
+                    else "[yellow]⚠ no git repo (use_git=true)[/yellow]"
+                )
+            else:
+                path_ok = "[green]✓[/green]"
             includes = ", ".join(src.include[:3])
             if len(src.include) > 3:
                 includes += f", +{len(src.include) - 3} more"
-            table.add_row(f"  {src.abs_path.name}", f"{name_part}{includes}")
+            table.add_row(f"  {abs_p.name}", f"{name_part}{path_ok}  {includes}")
+    else:
+        from rich.markup import escape as _markup_escape
+        table.add_row(
+            "Sources",
+            f"[dim]none — add {_markup_escape('[[sources]]')} in kg.toml to index files[/dim]",
+        )
 
     console.print(table)
 
@@ -1196,6 +1266,21 @@ def stop() -> None:
     click.echo(f"Watcher: {result}")
     vresult = stop_vector_server(cfg)
     click.echo(f"Vector server: {vresult}")
+
+
+@cli.command()
+def reload() -> None:
+    """Reload kg.toml in the running watcher without restarting it (sends SIGHUP).
+
+    \b
+    The watcher picks up changes to [[sources]], [embeddings], and [search]
+    settings within one poll cycle (~5s inotify timeout or ~1s poll interval).
+
+    If the watcher is not running, use `kg start` to start it.
+    """
+    cfg = _load_cfg()
+    msg = reload_watcher(cfg)
+    click.echo(f"Watcher: {msg}")
 
 
 # ---------------------------------------------------------------------------

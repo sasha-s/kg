@@ -25,6 +25,38 @@ def _safe_model_name(model: str) -> str:
     return model.replace("/", "_").replace(":", "_")
 
 
+def _suppress_ort_warnings() -> None:
+    """Suppress onnxruntime cpuid_info and other noisy C-level warnings.
+
+    The cpuid_info warning is printed by onnxruntime's C extension at import
+    time and ignores ORT_LOG_LEVEL. We suppress it by temporarily redirecting
+    the C-level stderr fd during import.
+    """
+    import sys
+
+    if "onnxruntime" in sys.modules:
+        return  # Already imported, too late
+
+    os.environ.setdefault("ORT_LOG_LEVEL", "3")  # ERROR only for Python-level logs
+
+    # Redirect C-level stderr to /dev/null during import
+    try:
+        stderr_fd = sys.stderr.fileno()
+    except OSError:
+        import onnxruntime as _ort
+        return
+
+    saved_fd = os.dup(stderr_fd)
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, stderr_fd)
+        os.close(devnull)
+        import onnxruntime as _ort  # noqa: F401
+    finally:
+        os.dup2(saved_fd, stderr_fd)
+        os.close(saved_fd)
+
+
 # ---------------------------------------------------------------------------
 # GeminiEmbedder
 # ---------------------------------------------------------------------------
@@ -149,6 +181,7 @@ class FastEmbedEmbedder:
     def _model(self) -> TextEmbedding:  # pyright: ignore[reportUndefinedVariable]
         """Get or create the fastembed model (lazy)."""
         if self._fe_model is None:
+            _suppress_ort_warnings()
             try:
                 from fastembed import TextEmbedding
             except ImportError as e:

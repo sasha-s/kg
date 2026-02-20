@@ -24,17 +24,37 @@ if TYPE_CHECKING:
 _SLUG_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`(.+?)`")
+_URL_RE = re.compile(r"https?://\S+")
 
 
 def _render(text: str, slugs: set[str]) -> str:
-    """Escape text and convert [slug] links, **bold**, `code` to HTML."""
+    """Escape text and convert URLs, [slug] links, **bold**, `code` to HTML."""
     def _link(m: re.Match[str]) -> str:
         s = m.group(1)
         return f'<a href="/node/{s}">[{s}]</a>' if s in slugs else f'<span class="dead">[{s}]</span>'
-    return _BOLD_RE.sub(
-        r"<strong>\1</strong>",
-        _SLUG_RE.sub(_link, _CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", _html.escape(text))),
-    )
+
+    def _inner(seg: str) -> str:
+        return _BOLD_RE.sub(
+            r"<strong>\1</strong>",
+            _SLUG_RE.sub(_link, _CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", _html.escape(seg))),
+        )
+
+    # Extract URLs before HTML-escaping so href values are intact
+    parts: list[str] = []
+    last = 0
+    for m in _URL_RE.finditer(text):
+        parts.append(_inner(text[last : m.start()]))
+        raw = m.group(0).rstrip(".,;:!?)'\"")
+        parts.append(
+            f'<a href="{_html.escape(raw)}" target="_blank" rel="noopener noreferrer">'
+            f'{_html.escape(raw)}</a>'
+        )
+        trailing = text[m.start() + len(raw) : m.end()]
+        if trailing:
+            parts.append(_html.escape(trailing))
+        last = m.end()
+    parts.append(_inner(text[last:]))
+    return "".join(parts)
 
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -165,37 +185,74 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
         f'[{_html.escape(node.slug)}] · {bc} bullet{s}{created}</p>'
         f'<div class="bullets">{"".join(items)}</div>'
     )
-    bl = _backlinks_html(cfg, node.slug, slugs)
+
+    from kg.indexer import get_backlinks
+    from_slugs = get_backlinks(node.slug, cfg.db_path, cfg)
+    bl = _backlinks_html(cfg, node.slug, from_slugs, slugs)
     if bl:
         body += f"<h2>Referenced by</h2>{bl}"
+
+    related = _related_html(cfg, node, set(from_slugs))
+    if related:
+        body += f"<h2>Related</h2>{related}"
+
     return _page(cfg, node.title, body)
 
 
-def _backlinks_html(cfg: KGConfig, slug: str, slugs: set[str]) -> str:
-    if not cfg.db_path.exists():
+def _backlinks_html(cfg: KGConfig, slug: str, from_slugs: list[str], slugs: set[str]) -> str:
+    """Render nodes that link to *slug*, grouped with their referencing bullets."""
+    if not from_slugs:
         return ""
-    from kg.db import get_conn
-    conn = get_conn(cfg)
-    rows = conn.execute(
-        "SELECT b.node_slug, n.title, b.text FROM bullets b "
-        "JOIN nodes n ON n.slug = b.node_slug "
-        "WHERE b.text LIKE ? AND b.node_slug != ? LIMIT 30",
-        (f"%[{slug}]%", slug),
-    ).fetchall()
-    conn.close()
-    if not rows:
-        return ""
-    items = []
-    for from_slug, from_title, text in rows:
-        label = _html.escape(from_title or from_slug)
-        items.append(
-            f'<div class="bullet">'
-            f'<span class="btp"><a href="/node/{from_slug}">[{_html.escape(from_slug)}]</a></span>'
-            f'<span class="btx">{_render(text, slugs)}</span>'
-            f'<span class="bid">{_html.escape(label)}</span>'
+    from kg.reader import FileStore
+    store = FileStore(cfg.nodes_dir)
+    parts: list[str] = []
+    for from_slug in sorted(from_slugs):
+        node = store.get(from_slug)
+        if node is None:
+            continue
+        refs = [b for b in node.live_bullets if f"[{slug}]" in b.text]
+        if not refs:
+            continue
+        title = _html.escape(node.title or from_slug)
+        bullets_html = "".join(
+            f'<div class="bullet"><span class="btx">{_render(b.text, slugs)}</span></div>'
+            for b in refs[:4]
+        )
+        parts.append(
+            f'<div class="sg">'
+            f'<h3><a href="/node/{from_slug}">{title}</a>'
+            f' <span style="font-weight:normal;color:var(--mt);font-size:12px">[{_html.escape(from_slug)}]</span></h3>'
+            f'<div class="bullets">{bullets_html}</div>'
             f'</div>'
         )
-    return f'<div class="bullets">{"".join(items)}</div>'
+    return "".join(parts)
+
+
+def _related_html(cfg: KGConfig, node: FileNode, exclude: set[str]) -> str:
+    """Find semantically related nodes via search on this node's content."""
+    query_parts = [node.title] + [b.text for b in node.live_bullets[:6]]
+    query = " ".join(query_parts)[:600]
+    try:
+        results = _do_search(query, cfg, limit=15)
+    except Exception:
+        return ""
+    items: list[str] = []
+    for r in results:
+        s = r["slug"]
+        if s == node.slug or s in exclude or s.startswith("_"):
+            continue
+        title = _html.escape(r.get("title") or s)
+        items.append(
+            f'<div class="node-row">'
+            f'<span class="t"><a href="/node/{s}">{title}</a></span>'
+            f'<span class="m">[{_html.escape(s)}]</span>'
+            f'</div>'
+        )
+        if len(items) >= 6:
+            break
+    if not items:
+        return ""
+    return f'<div class="node-list">{"".join(items)}</div>'
 
 
 def _render_search_page(
