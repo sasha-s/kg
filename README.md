@@ -93,7 +93,7 @@ kg context "query" -s SESSION_ID  # filter already-seen bullets for this session
 
 ## Review & Budget
 
-Each node accumulates a `token_budget` counter: every time `kg context` / `memory_context` serves a node, the chars in its output are added to the budget. The review signal is **credits per bullet** (`token_budget / bullet_count`). When this exceeds `budget_threshold` (default 500 ≈ 2–3 serves), `kg show` and context output flag the node with ⚠. Normalising by bullet count means a 1-bullet node and a 20-bullet node are held to the same standard.
+Each node accumulates a `token_budget` counter: every time `kg context` / `memory_context` serves a node, the chars in its output are added to the budget. The review signal is **credits per bullet** (`token_budget / bullet_count`). When this exceeds `budget_threshold` (default 3000 ≈ 15 serves), `kg show` and context output flag the node with ⚠. Normalising by bullet count means a 1-bullet node and a 20-bullet node are held to the same standard.
 
 ```bash
 kg review              # list nodes ordered by budget (reads files, never stale)
@@ -125,7 +125,7 @@ reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
 auto_calibrate_threshold = 0.05   # recalibrate when 5% of bullets change
 
 [review]
-budget_threshold = 500   # credits-per-bullet before flagging (≈ 2-3 serves)
+budget_threshold = 3000   # credits-per-bullet before flagging (≈ 15 serves)
 
 [server]
 port = 7343

@@ -100,7 +100,7 @@ class SourceConfig:
 
 @dataclass
 class ReviewConfig:
-    budget_threshold: float = 500.0   # credits-per-bullet before flagging for review
+    budget_threshold: float = 3000.0   # credits-per-bullet before flagging for review
 
 
 @dataclass
@@ -118,6 +118,8 @@ class DatabaseConfig:
 class ServerConfig:
     port: int = 7343
     vector_port: int = 7344
+    web_port: int = 7345
+    web_host: str = "127.0.0.1"
 
 
 @dataclass
@@ -235,7 +237,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         index_dir=root_path / index_rel,
         sources=sources,
         review=ReviewConfig(
-            budget_threshold=float(rev_section.get("budget_threshold", 500.0)),
+            budget_threshold=float(rev_section.get("budget_threshold", 3000.0)),
         ),
         embeddings=EmbeddingsConfig(
             model=emb_section.get("model", "gemini:gemini-embedding-001"),
@@ -247,6 +249,8 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         server=ServerConfig(
             port=int(srv_section.get("port", 7343)),
             vector_port=int(srv_section.get("vector_port", 7344)),
+            web_port=int(srv_section.get("web_port", 7345)),
+            web_host=str(srv_section.get("web_host", "127.0.0.1")),
         ),
         search=SearchConfig(
             fts_weight=float(srch_section.get("fts_weight", 0.5)),
@@ -291,7 +295,7 @@ name = "{project_name}"
 # max_size_kb = 512
 
 # [review]
-# budget_threshold = 500   # credits-per-bullet before flagging (default: 500, ~2-3 serves)
+# budget_threshold = 3000   # credits-per-bullet before flagging (default: 3000, ~15 serves)
 
 # [embeddings]
 # model = "gemini:gemini-embedding-001"
@@ -303,6 +307,8 @@ name = "{project_name}"
 # [server]
 # port = 7343
 # vector_port = 7344
+# web_port = 7345
+# web_host = "127.0.0.1"
 
 # [search]
 # fts_weight = 0.5

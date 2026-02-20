@@ -58,8 +58,8 @@ class FileBullet:
 
 # Threshold: flag for review when credits-per-bullet exceeds this value.
 # credits-per-bullet ≈ serve_count * avg_chars_per_bullet (~200)
-# so threshold=500 ≈ flagged after ~2-3 context appearances per bullet.
-_REVIEW_BUDGET_THRESHOLD = 500.0
+# so threshold=3000 ≈ flagged after ~15 context appearances per bullet.
+_REVIEW_BUDGET_THRESHOLD = 3000.0
 
 
 @dataclass
