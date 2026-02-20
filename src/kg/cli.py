@@ -129,7 +129,8 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
 
 @cli.command()
 @click.argument("slug")
-def show(slug: str) -> None:
+@click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
+def show(slug: str, max_width: int) -> None:
     """Show all bullets for a node."""
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
@@ -151,7 +152,8 @@ def show(slug: str) -> None:
     for b in live:
         prefix = f"({b.type}) " if b.type != "fact" else ""
         vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
-        click.echo(f"  {prefix}{b.text}  ←{b.id}{vote_info}")
+        text = (b.text[:max_width] + "…") if max_width and len(b.text) > max_width else b.text
+        click.echo(f"  {prefix}{text}  ←{b.id}{vote_info}")
 
 
 # ---------------------------------------------------------------------------
@@ -212,11 +214,18 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
 # ---------------------------------------------------------------------------
 
 @cli.command()
-@click.argument("query")
+@click.argument("query", required=False)
+@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
+@click.option("--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)")
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
-def search(query: str, limit: int, flat: bool) -> None:
+def search(query: str | None, query_file: str | None, session: str | None, limit: int, flat: bool) -> None:  # noqa: ARG001
     """FTS5 search over bullets."""
+    if query_file:
+        query = Path(query_file).read_text().strip()
+    if not query:
+        raise click.ClickException("Provide QUERY or --query-file / -Q")
+
     cfg = _load_cfg()
     rows = search_fts(query, cfg.db_path, limit=limit)
     if not rows:
@@ -228,13 +237,27 @@ def search(query: str, limit: int, flat: bool) -> None:
             click.echo(f"[{r['slug']}] {r['text']}  ←{r['bullet_id']}")
         return
 
-    # Group by slug
+    # Group by slug, fetch titles from index
     groups: dict[str, list[dict]] = {}
     for r in rows:
         groups.setdefault(r["slug"], []).append(r)
 
+    if cfg.db_path.exists():
+        conn = sqlite3.connect(str(cfg.db_path))
+        titles: dict[str, str] = dict(
+            conn.execute(
+                f"SELECT slug, title FROM nodes WHERE slug IN ({','.join('?' * len(groups))})",  # noqa: S608
+                list(groups),
+            ).fetchall()
+        )
+        conn.close()
+    else:
+        titles = {}
+
     for slug, bullets in groups.items():
-        click.echo(f"\n[{slug}]")
+        title = titles.get(slug, "")
+        header = f"[{slug}]" + (f"  {title}" if title and title != slug else "")
+        click.echo(f"\n{header}")
         for b in bullets:
             click.echo(f"  {b['text']}  ←{b['bullet_id']}")
 
