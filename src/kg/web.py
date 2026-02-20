@@ -552,16 +552,15 @@ def _render_search_page(
         )
         return _page(cfg, f"Search: {query}", body, q=query)
 
+    concept_results = [r for r in results if not r["slug"].startswith("_doc-")]
+    doc_results = [r for r in results if r["slug"].startswith("_doc-")]
+
     parts = []
-    for r in results:
+    for r in concept_results:
         slug = r["slug"]
         title = _html.escape(r.get("title") or slug)
         node_href = f"/node/{slug}"
-        # For doc nodes show path as code
-        if slug.startswith("_doc-"):
-            title_html = f'<a href="{node_href}"><code style="font-size:13px">{title}</code></a>'
-        else:
-            title_html = f'<a href="{node_href}">[{_html.escape(slug)}]</a> {title}'
+        title_html = f'<a href="{node_href}">[[{_html.escape(slug)}]]</a> {title}'
         items = []
         for b in r["bullets"]:
             items.append(
@@ -576,10 +575,48 @@ def _render_search_page(
             f'<div class="bullets">{"".join(items)}</div>'
             f'</div>'
         )
+
+    doc_parts = []
+    for r in doc_results:
+        slug = r["slug"]
+        title = _html.escape(r.get("title") or slug)
+        node_href = f"/node/{slug}"
+        title_html = f'<a href="{node_href}"><code style="font-size:13px">{title}</code></a>'
+        items = []
+        for b in r["bullets"]:
+            items.append(
+                f'<div class="bullet">'
+                f'<span class="btx">{_render(b["text"], slugs)}</span>'
+                f'<span class="bid">{_html.escape(b["bullet_id"])}</span>'
+                f'</div>'
+            )
+        doc_parts.append(
+            f'<div class="sg">'
+            f'<h3>{title_html}</h3>'
+            f'<div class="bullets">{"".join(items)}</div>'
+            f'</div>'
+        )
+
+    docs_section = ""
+    docs_btn = ""
+    if doc_parts:
+        docs_section = (
+            f'<div id="docs-section" class="hidden" style="margin-top:24px">'
+            f'<h2>Source files ({len(doc_results)})</h2>'
+            + "".join(doc_parts)
+            + "</div>"
+        )
+        docs_btn = (
+            f'<button class="docs-toggle-btn" id="docs-btn" onclick="toggleDocs()">'
+            f'Show {len(doc_results)} source file result{"s" if len(doc_results) != 1 else ""}'
+            f'</button>'
+        )
+
     body = (
         f'<h1>"{_html.escape(query)}"</h1>'
-        f'<p class="meta">{len(results)} nodes matched</p>'
+        f'<p class="meta">{len(concept_results)} nodes matched  {docs_btn}</p>'
         + "".join(parts)
+        + docs_section
     )
     return _page(cfg, f"Search: {query}", body, q=query)
 
@@ -634,8 +671,10 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
     dual_bonus = cfg.search.dual_match_bonus
 
     fts_cal = get_calibration("fts", cfg.db_path, cfg)
+    fts_doc_cal = get_calibration("fts_doc", cfg.db_path, cfg)
     vec_cal = get_calibration("vector", cfg.db_path, cfg)
     fts_breaks = fts_cal[1] if fts_cal else None
+    fts_doc_breaks = fts_doc_cal[1] if fts_doc_cal else None
     vec_breaks = vec_cal[1] if vec_cal else None
 
     fts_ranked = sorted(fts_scores.items(), key=lambda x: x[1], reverse=True)
@@ -645,8 +684,9 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
     def _score(slug: str) -> float:
         fts_raw = fts_scores.get(slug, 0.0)
         vec_raw = vec_scores.get(slug, 0.0)
-        if fts_breaks and fts_raw > 0:
-            fts_q = score_to_quantile(fts_raw, fts_breaks)
+        breaks = fts_doc_breaks if slug.startswith("_doc-") else fts_breaks
+        if breaks and fts_raw > 0:
+            fts_q = score_to_quantile(fts_raw, breaks)
         elif n_fts > 1:
             pos = fts_rank_pos.get(slug, n_fts - 1)
             fts_q = 1.0 - pos / (n_fts - 1)

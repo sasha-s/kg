@@ -450,24 +450,32 @@ def calibrate(db_path: Path, cfg: KGConfig | None = None, sample_size: int = 200
     _ensure_schema(conn)
 
     rows = conn.execute(
-        "SELECT text FROM bullets ORDER BY RANDOM() LIMIT ?", (sample_size,)
+        "SELECT text FROM bullets WHERE type != 'chunk' ORDER BY RANDOM() LIMIT ?", (sample_size,)
     ).fetchall()
-    if not rows:
+    chunk_rows = conn.execute(
+        "SELECT text FROM bullets WHERE type = 'chunk' ORDER BY RANDOM() LIMIT ?", (sample_size,)
+    ).fetchall()
+    if not rows and not chunk_rows:
         return {"bullets_sampled": 0, "warning": "no bullets found"}
 
-    # Collect FTS scores
-    fts_scores: list[float] = []
-    for (text,) in rows:
-        fts_query = _build_fts_query(text[:100])
-        if not fts_query:
-            continue
-        hits = conn.execute(
-            "SELECT bm25(bullets_fts) FROM bullets_fts WHERE bullets_fts MATCH ? LIMIT 20",
-            (fts_query,),
-        ).fetchall()
-        for (score,) in hits:
-            if score is not None:
-                fts_scores.append(-score)   # negate: higher = better
+    def _collect_fts(sample: list[tuple[str]]) -> list[float]:
+        scores: list[float] = []
+        for (text,) in sample:
+            fts_query = _build_fts_query(text[:100])
+            if not fts_query:
+                continue
+            hits = conn.execute(
+                "SELECT bm25(bullets_fts) FROM bullets_fts WHERE bullets_fts MATCH ? LIMIT 20",
+                (fts_query,),
+            ).fetchall()
+            for (score,) in hits:
+                if score is not None:
+                    scores.append(-score)   # negate: higher = better
+        return scores
+
+    # Collect FTS scores — separate for concept bullets and doc chunks
+    fts_scores: list[float] = _collect_fts(rows)
+    fts_doc_scores: list[float] = _collect_fts(chunk_rows)
 
     # Collect vector scores
     vec_scores: list[float] = []
@@ -499,6 +507,7 @@ def calibrate(db_path: Path, cfg: KGConfig | None = None, sample_size: int = 200
     now = datetime.now(UTC).isoformat()
 
     fts_breaks = _percentile_breaks(fts_scores)
+    fts_doc_breaks = _percentile_breaks(fts_doc_scores)
     vec_breaks = _percentile_breaks(vec_scores)
 
     with conn:
@@ -507,6 +516,12 @@ def calibrate(db_path: Path, cfg: KGConfig | None = None, sample_size: int = 200
                 "INSERT OR REPLACE INTO calibration(key, breaks, bullet_count, updated_at)"
                 " VALUES (?, ?, ?, ?)",
                 ("fts", json.dumps(fts_breaks), bullet_count, now),
+            )
+        if fts_doc_breaks:
+            conn.execute(
+                "INSERT OR REPLACE INTO calibration(key, breaks, bullet_count, updated_at)"
+                " VALUES (?, ?, ?, ?)",
+                ("fts_doc", json.dumps(fts_doc_breaks), bullet_count, now),
             )
         if vec_breaks:
             conn.execute(
@@ -517,9 +532,11 @@ def calibrate(db_path: Path, cfg: KGConfig | None = None, sample_size: int = 200
         conn.execute("INSERT OR REPLACE INTO calibration_ops(id, ops_count) VALUES (1, 0)")
 
     return {
-        "bullets_sampled": len(rows),
+        "bullets_sampled": len(rows) + len(chunk_rows),
         "fts_scores": len(fts_scores),
         "fts_calibrated": fts_breaks is not None,
+        "fts_doc_scores": len(fts_doc_scores),
+        "fts_doc_calibrated": fts_doc_breaks is not None,
         "vec_scores": len(vec_scores),
         "vec_calibrated": vec_breaks is not None,
         "bullet_count": bullet_count,

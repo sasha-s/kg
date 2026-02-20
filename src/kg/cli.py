@@ -238,28 +238,13 @@ def upgrade(no_reindex: bool) -> None:
     click.echo("Upgraded successfully.")
 
     if not no_reindex:
-        try:
-            cfg = _load_cfg()
-            cfg.ensure_dirs()
-            from kg.daemon import ensure_watcher, stop_watcher, watcher_status
-            was_running = watcher_status(cfg) != "stopped"
-            if was_running:
-                click.echo("Stopping watcher…")
-                stop_watcher(cfg)
-            n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
-            click.echo(f"Reindexed {n} nodes")
-            if cfg.sources:
-                click.echo(f"Indexing {len(cfg.sources)} file source(s)...")
-                for src in cfg.sources:
-                    stats = index_source(src, db_path=cfg.db_path)
-                    parts = [f"{v} {k}" for k, v in stats.items() if v]
-                    click.echo(f"  [{src.name or src.path}] {', '.join(parts) or 'no changes'}")
-            _calibrate_after_reindex(cfg)
-            if was_running:
-                click.echo("Restarting watcher…")
-                ensure_watcher(cfg)
-        except Exception:  # noqa: S110
-            pass
+        import shutil as _shutil
+        new_kg = _shutil.which("kg")
+        if new_kg:
+            click.echo("Running reindex with new binary...")
+            subprocess.run([new_kg, "reindex"], check=False)
+        else:
+            click.echo("Could not find `kg` in PATH — run `kg reindex` manually.")
 
 
 @cli.command()
@@ -1267,7 +1252,7 @@ def status() -> None:
         with _cl.suppress(Exception):
             from kg.db import get_conn as _get_conn
             _ec = _get_conn(cfg)
-            n_emb = _ec.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            n_emb = _ec.execute("SELECT COUNT(*) FROM embeddings WHERE node_slug NOT LIKE '\\_%' ESCAPE '\\'").fetchone()[0]
             n_indexed_bullets = _ec.execute("SELECT COUNT(*) FROM bullets").fetchone()[0]
             _ec.close()
 
@@ -1291,11 +1276,16 @@ def status() -> None:
         table.add_row("  Snapshot", f"{cal['bullet_count']} bullets")
         table.add_row("  Since then", f"{ops} ops, {delta_str} bullets")
         fts_cal = get_calibration("fts", cfg.db_path, cfg)
+        fts_doc_cal = get_calibration("fts_doc", cfg.db_path, cfg)
         vec_cal = get_calibration("vector", cfg.db_path, cfg)
         if fts_cal:
-            table.add_row("  FTS scores", _score_spark(fts_cal[1], ".2f"))
+            table.add_row("  FTS bullets", _score_spark(fts_cal[1], ".2f"))
         else:
-            table.add_row("  FTS scores", "[yellow]⚠ not calibrated — run `kg calibrate`[/yellow]")
+            table.add_row("  FTS bullets", "[yellow]⚠ not calibrated — run `kg calibrate`[/yellow]")
+        if fts_doc_cal:
+            table.add_row("  FTS docs", _score_spark(fts_doc_cal[1], ".2f"))
+        else:
+            table.add_row("  FTS docs", "[dim]no doc chunks yet — run `kg reindex` or `kg index`[/dim]")
         if vec_cal:
             table.add_row("  Vec scores", _score_spark(vec_cal[1], ".3f"))
         elif n_emb == 0:
