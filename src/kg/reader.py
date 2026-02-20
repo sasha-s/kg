@@ -9,6 +9,7 @@ FileStore is the public API:
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 from datetime import UTC, datetime
@@ -129,33 +130,33 @@ class FileStore:
 
     def update_node_budget(self, slug: str, delta_chars: float) -> float:
         """Increment token_budget by delta_chars. Returns new total."""
-        path = self._meta_path(slug)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
         current = self._read_node_meta(slug)
         new_budget = float(current.get("token_budget", 0.0)) + delta_chars
-        current["token_budget"] = new_budget
-        current["_node"] = slug
-        current["updated_at"] = datetime.now(UTC).isoformat()
-
-        line = json.dumps(current) + "\n"
-        with path.open("a") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
-            f.write(line)
+        self._write_node_meta(slug, {
+            **current,
+            "_node": slug,
+            "token_budget": new_budget,
+            "updated_at": datetime.now(UTC).isoformat(),
+        })
         return new_budget
 
     def clear_node_budget(self, slug: str) -> None:
-        """Mark node as reviewed: zero out budget, record last_reviewed timestamp."""
+        """Mark node as reviewed: zero out budget, reset structural checkpoint."""
+        current = self._read_node_meta(slug)
+        self._write_node_meta(slug, {
+            **current,
+            "_node": slug,
+            "token_budget": 0.0,
+            "last_bullet_checkpoint": 0,   # allows next crossing to re-fire
+            "last_reviewed": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        })
+
+    def _write_node_meta(self, slug: str, data: dict[str, Any]) -> None:
+        """Append a node-level meta entry to meta.jsonl."""
         path = self._meta_path(slug)
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        current = self._read_node_meta(slug)
-        current["_node"] = slug
-        current["token_budget"] = 0.0
-        current["last_reviewed"] = datetime.now(UTC).isoformat()
-        current["updated_at"] = datetime.now(UTC).isoformat()
-
-        line = json.dumps(current) + "\n"
+        line = json.dumps(data) + "\n"
         with path.open("a") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             f.write(line)
@@ -238,7 +239,14 @@ class FileStore:
         status: str | None = None,
         bullet_id: str | None = None,
     ) -> FileBullet:
-        """Append a bullet to node.jsonl. Auto-creates node if missing."""
+        """Append a bullet to node.jsonl. Auto-creates node if missing.
+
+        After writing, checks if bullet count crosses a structural checkpoint
+        (30, 45, 60, ...).  If so, bombs the node's token_budget high enough
+        to guarantee a review flag until the user explicitly reviews.
+        """
+        from kg.models import _REVIEW_BUDGET_THRESHOLD, structural_checkpoint
+
         self.get_or_create(slug, title=slug)
 
         bullet = FileBullet(
@@ -257,6 +265,26 @@ class FileStore:
             if len(line) >= 4096:  # PIPE_BUF threshold
                 fcntl.flock(f, fcntl.LOCK_EX)
             f.write(line)
+
+        # Structural checkpoint: bomb budget if bullet count crossed a threshold
+        with contextlib.suppress(Exception):
+            node = self.get(slug)
+            if node is not None:
+                count = len(node.live_bullets)
+                cp = structural_checkpoint(count)
+                if cp is not None:
+                    meta = self._read_node_meta(slug)
+                    last_cp = int(meta.get("last_bullet_checkpoint", 0))
+                    if cp > last_cp:
+                        # Bomb: add enough to push credits_per_bullet >= threshold
+                        bomb = max(0.0, _REVIEW_BUDGET_THRESHOLD * count - float(meta.get("token_budget", 0.0)))
+                        self._write_node_meta(slug, {
+                            **meta,
+                            "token_budget": float(meta.get("token_budget", 0.0)) + bomb,
+                            "last_bullet_checkpoint": cp,
+                            "_node": slug,
+                            "updated_at": datetime.now(UTC).isoformat(),
+                        })
 
         return bullet
 

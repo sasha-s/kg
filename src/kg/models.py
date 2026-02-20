@@ -60,6 +60,22 @@ class FileBullet:
 # credits-per-bullet ≈ serve_count * avg_chars_per_bullet (~200)
 # so threshold=3000 ≈ flagged after ~15 context appearances per bullet.
 _REVIEW_BUDGET_THRESHOLD = 3000.0
+# Structural threshold: each time bullet count crosses one of these checkpoints
+# (30, 45, 60, ...) a budget bomb is added, forcing a review flag.
+# Clearing the budget (kg review <slug>) resets the checkpoint tracker so the
+# next crossing at 45, 60, etc. fires again.
+_REVIEW_BULLET_THRESHOLD = 30
+_REVIEW_BULLET_STEP = _REVIEW_BULLET_THRESHOLD // 2  # 15
+
+
+def structural_checkpoint(count: int) -> int | None:
+    """Return the current structural checkpoint for bullet count, or None if below base.
+
+    Checkpoints: 30, 45, 60, 75, ... (base + n * step).
+    """
+    if count < _REVIEW_BULLET_THRESHOLD:
+        return None
+    return (count // _REVIEW_BULLET_STEP) * _REVIEW_BULLET_STEP
 
 
 @dataclass
