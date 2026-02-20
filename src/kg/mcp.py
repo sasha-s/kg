@@ -160,12 +160,7 @@ class KGServer:
             bar = "─" * 60
             lines += [
                 bar,
-                f"⚠ NEEDS REVIEW: {hint.lstrip('⚠ needs review (')}",
-                "  This node has been served heavily. Before continuing:",
-                "  1. Read all bullets below — delete stale/wrong ones",
-                "  2. Split if >15 bullets (one concept per node)",
-                "  3. Push insights to connected nodes via memory_add_bullet",
-                "  4. Call memory_mark_reviewed when done",
+                f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {len(live)} bullets  see [node-review]",
                 bar,
             ]
         for b in live:
