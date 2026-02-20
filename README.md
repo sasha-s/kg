@@ -111,7 +111,7 @@ reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
 auto_calibrate_threshold = 0.05   # recalibrate when 5% of bullets change
 
 [review]
-budget_threshold = 500   # chars served before flagging for review
+budget_threshold = 3000   # chars served before flagging for review
 
 [server]
 port = 7343
