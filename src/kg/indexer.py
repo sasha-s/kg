@@ -26,8 +26,10 @@ if TYPE_CHECKING:
     from kg.config import KGConfig
     from kg.models import FileNode
 
-# Cross-reference pattern: [slug] in bullet text
+# Cross-reference pattern: [[slug]] in bullet text
 _CROSSREF_RE = re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
+# File path pattern for auto-backlinks to _doc-* nodes (e.g. "src/kg/web.py")
+_PATH_RE = re.compile(r"(?<![/\w])[a-zA-Z0-9_][a-zA-Z0-9_\-\.]*(?:/[a-zA-Z0-9_\-\.]+)+")
 
 
 def _get_conn(db_path: Path) -> sqlite3.Connection:
@@ -245,6 +247,11 @@ def index_node(slug: str, *, nodes_dir: Path, db_path: Path, cfg: KGConfig | Non
              node.token_budget, node.last_reviewed or None),
         )
 
+        # Build path→doc_slug lookup for file-path backlinks (cheap single query)
+        path_to_doc: dict[str, str] = dict(
+            conn.execute("SELECT rel_path, slug FROM file_sources").fetchall()
+        )
+
         for b in live:
             conn.execute(
                 "INSERT OR REPLACE INTO bullets(id, node_slug, type, text, status, created_at, useful, harmful, used, num_voted) "
@@ -252,12 +259,20 @@ def index_node(slug: str, *, nodes_dir: Path, db_path: Path, cfg: KGConfig | Non
                 (b.id, node.slug, b.type, b.text, b.status, b.created_at,
                  b.useful, b.harmful, b.used, b.useful + b.harmful),
             )
-            # Extract backlinks from text
+            # Extract [[slug]] backlinks
             for ref in _CROSSREF_RE.findall(b.text):
                 if ref != slug:
                     conn.execute(
                         "INSERT OR IGNORE INTO backlinks(from_slug, to_slug) VALUES (?, ?)",
                         (slug, ref),
+                    )
+            # Extract file-path backlinks to _doc-* nodes
+            for m in _PATH_RE.finditer(b.text):
+                doc_slug = path_to_doc.get(m.group(0))
+                if doc_slug and doc_slug != slug:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO backlinks(from_slug, to_slug) VALUES (?, ?)",
+                        (slug, doc_slug),
                     )
 
         # Generate and store embedding if cfg provided

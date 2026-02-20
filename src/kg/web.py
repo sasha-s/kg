@@ -25,10 +25,24 @@ _SLUG_RE = re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`(.+?)`")
 _URL_RE = re.compile(r"https?://\S+")
+# Matches path-like strings (at least one /) for auto-linkification to _doc-* nodes
+_PATH_RE = re.compile(r"(?<![/\w])[a-zA-Z0-9_][a-zA-Z0-9_\-\.]*(?:/[a-zA-Z0-9_\-\.]+)+")
 
 
-def _render(text: str, slugs: set[str]) -> str:
-    """Escape text and convert URLs, [slug] links, **bold**, `code` to HTML."""
+def _get_path_slugs(cfg: KGConfig) -> dict[str, str]:
+    """Return {rel_path: doc_slug} for all indexed source files."""
+    import contextlib
+    result: dict[str, str] = {}
+    with contextlib.suppress(Exception):
+        from kg.db import get_conn
+        conn = get_conn(cfg)
+        result = dict(conn.execute("SELECT rel_path, slug FROM file_sources").fetchall())
+        conn.close()
+    return result
+
+
+def _render(text: str, slugs: set[str], path_slugs: dict[str, str] | None = None) -> str:
+    """Escape text and convert URLs, [[slug]] links, **bold**, `code`, file paths to HTML."""
     def _link(m: re.Match[str]) -> str:
         s = m.group(1)
         return f'<a href="/node/{s}">[[{s}]]</a>' if s in slugs else f'<span class="dead">[[{s}]]</span>'
@@ -39,11 +53,30 @@ def _render(text: str, slugs: set[str]) -> str:
             _SLUG_RE.sub(_link, _CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", _html.escape(seg))),
         )
 
+    def _process_seg(seg: str) -> str:
+        """Like _inner but also auto-links known file paths."""
+        if not path_slugs:
+            return _inner(seg)
+        parts: list[str] = []
+        last = 0
+        for m in _PATH_RE.finditer(seg):
+            p = m.group(0)
+            slug = path_slugs.get(p)
+            if slug:
+                parts.append(_inner(seg[last : m.start()]))
+                parts.append(
+                    f'<a href="/node/{slug}" title="{_html.escape(p)}">'
+                    f'<code style="color:var(--lk)">{_html.escape(p)}</code></a>'
+                )
+                last = m.end()
+        parts.append(_inner(seg[last:]))
+        return "".join(parts)
+
     # Extract URLs before HTML-escaping so href values are intact
     parts: list[str] = []
     last = 0
     for m in _URL_RE.finditer(text):
-        parts.append(_inner(text[last : m.start()]))
+        parts.append(_process_seg(text[last : m.start()]))
         raw = m.group(0).rstrip(".,;:!?)'\"")
         parts.append(
             f'<a href="{_html.escape(raw)}" target="_blank" rel="noopener noreferrer">'
@@ -53,7 +86,7 @@ def _render(text: str, slugs: set[str]) -> str:
         if trailing:
             parts.append(_html.escape(trailing))
         last = m.end()
-    parts.append(_inner(text[last:]))
+    parts.append(_process_seg(text[last:]))
     return "".join(parts)
 
 
@@ -496,6 +529,7 @@ def _render_doc_page(cfg: KGConfig, doc: dict, show_chunks: bool) -> str:
 
 
 def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
+    path_slugs = _get_path_slugs(cfg)
     items = []
     for b in node.live_bullets:
         bc = f"b-{b.type}" if b.type in _BULLET_COLORS else ""
@@ -506,7 +540,7 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
         items.append(
             f'<div class="bullet {bc}">'
             f'<span class="btp">{_html.escape(b.type)}</span>'
-            f'<span class="btx">{_render(b.text, slugs)}{sp}</span>'
+            f'<span class="btx">{_render(b.text, slugs, path_slugs)}{sp}</span>'
             f'{votes}'
             f'<span class="bid">{_html.escape(b.id)}</span>'
             f'</div>'
@@ -523,7 +557,7 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
 
     from kg.indexer import get_backlinks
     from_slugs = get_backlinks(node.slug, cfg.db_path, cfg)
-    bl = _backlinks_html(cfg, node.slug, from_slugs, slugs)
+    bl = _backlinks_html(cfg, node.slug, from_slugs, slugs, path_slugs)
     if bl:
         body += f"<h2>Referenced by</h2>{bl}"
 
@@ -533,7 +567,7 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
     return _page(cfg, node.title, body)
 
 
-def _backlinks_html(cfg: KGConfig, slug: str, from_slugs: list[str], slugs: set[str]) -> str:
+def _backlinks_html(cfg: KGConfig, slug: str, from_slugs: list[str], slugs: set[str], path_slugs: dict[str, str] | None = None) -> str:
     """Render nodes that link to *slug*, grouped with their referencing bullets."""
     if not from_slugs:
         return ""
@@ -549,7 +583,7 @@ def _backlinks_html(cfg: KGConfig, slug: str, from_slugs: list[str], slugs: set[
             continue
         title = _html.escape(node.title or from_slug)
         bullets_html = "".join(
-            f'<div class="bullet"><span class="btx">{_render(b.text, slugs)}</span></div>'
+            f'<div class="bullet"><span class="btx">{_render(b.text, slugs, path_slugs)}</span></div>'
             for b in refs[:4]
         )
         parts.append(
