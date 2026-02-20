@@ -112,12 +112,39 @@ def reindex() -> None:
 
 
 @cli.command()
-def upgrade() -> None:
-    """Rebuild index and apply any schema migrations (safe to run anytime)."""
-    cfg = _load_cfg()
-    cfg.ensure_dirs()
-    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
-    click.echo(f"Upgraded: indexed {n} nodes")
+@click.option("--no-reindex", is_flag=True, help="Skip reindex after upgrade")
+def upgrade(no_reindex: bool) -> None:
+    """Upgrade kg to the latest version from GitHub, then reindex.
+
+    Installs from git+https://github.com/sasha-s/kg.git using uv or pip.
+    """
+    import shutil
+    import subprocess
+
+    # Try uv first (faster), fall back to pip
+    if shutil.which("uv"):
+        cmd = ["uv", "tool", "install", "--force", "git+https://github.com/sasha-s/kg.git"]
+        tool = "uv"
+    else:
+        cmd = ["pip", "install", "--upgrade", "git+https://github.com/sasha-s/kg.git"]
+        tool = "pip"
+
+    click.echo(f"Installing latest kg via {tool}...")
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        click.echo("Install failed. Try manually: uv tool install --force git+https://github.com/sasha-s/kg.git")
+        return
+
+    click.echo("Upgraded successfully.")
+
+    if not no_reindex:
+        try:
+            cfg = _load_cfg()
+            cfg.ensure_dirs()
+            n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
+            click.echo(f"Reindexed {n} nodes")
+        except Exception:  # noqa: S110
+            pass
 
 
 @cli.command()

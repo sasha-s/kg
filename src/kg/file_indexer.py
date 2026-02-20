@@ -18,7 +18,6 @@ This reuses the existing FTS5 index on bullets.text, so `kg search` and
 from __future__ import annotations
 
 import hashlib
-import re
 import sqlite3
 import subprocess
 from datetime import UTC, datetime
@@ -26,13 +25,18 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from kg._vendor.fastcdc import fastcdc_py
+
 if TYPE_CHECKING:
     from kg.config import SourceConfig
 
-# Chunk sizing
-_CHUNK_TARGET_CHARS = 1500      # ~375 tokens
-_CHUNK_MIN_CHARS = 200
-_CHUNK_MAX_CHARS = 3000
+# Chunk size parameters (bytes; ~4 chars/token)
+_CHUNK_MIN = 512    # ~128 tokens min
+_CHUNK_AVG = 1500   # ~375 tokens target
+_CHUNK_MAX = 4000   # ~1K tokens max
+
+# After CDC split, drop chunks shorter than this (likely stubs)
+_CHUNK_MIN_CHARS = 64
 
 # Binary detection: if >30% of first 512 bytes are non-printable, skip
 _BINARY_THRESHOLD = 0.30
@@ -65,47 +69,82 @@ def _is_binary(path: Path) -> bool:
     return len(sample) > 0 and non_printable / len(sample) > _BINARY_THRESHOLD
 
 
-def _paragraph_chunks(text: str) -> list[str]:
-    """Split text into chunks at blank lines, respecting min/max sizes."""
-    paragraphs = re.split(r"\n\s*\n", text)
-    chunks: list[str] = []
-    current = ""
+def _fastcdc_chunks(text: str) -> list[str]:
+    """Split text using content-defined chunking, snapping splits to line boundaries.
 
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-        if not current:
-            current = para
-        elif len(current) + len(para) + 2 <= _CHUNK_TARGET_CHARS:
-            current += "\n\n" + para
-        else:
-            if current:
-                chunks.extend(_split_oversized(current))
-            current = para
+    Uses fastcdc rolling hash for stable chunk boundaries that survive local edits.
+    Split points are snapped to the nearest newline for cleaner chunks.
+    """
+    if not text:
+        return []
 
-    if current:
-        chunks.extend(_split_oversized(current))
+    data = text.encode("utf-8")
 
-    return [c for c in chunks if len(c) >= _CHUNK_MIN_CHARS] or chunks[:1]
+    # Short documents: return as single chunk
+    if len(data) <= _CHUNK_MIN:
+        return [text] if text.strip() else []
 
+    # CDC split points
+    cdc_chunks = fastcdc_py(data, min_size=_CHUNK_MIN, avg_size=_CHUNK_AVG, max_size=_CHUNK_MAX)
 
-def _split_oversized(text: str) -> list[str]:
-    """Split a chunk that exceeds max at line boundaries."""
-    if len(text) <= _CHUNK_MAX_CHARS:
-        return [text]
+    # Collect raw split points
+    split_points = [0]
+    for c in cdc_chunks:
+        split_points.append(c.offset + c.length)
+    if split_points[-1] != len(data):
+        split_points[-1] = len(data)
+
+    # Snap internal split points to nearest newline
+    for i in range(1, len(split_points) - 1):
+        pos = split_points[i]
+        split_points[i] = _snap_to_newline(data, pos)
+
+    # Deduplicate (snapping may merge adjacent points)
+    split_points = sorted(set(split_points))
+
+    # Extract text chunks
     result: list[str] = []
-    lines = text.splitlines(keepends=True)
-    current = ""
-    for line in lines:
-        if len(current) + len(line) > _CHUNK_MAX_CHARS and current:
-            result.append(current.rstrip())
-            current = line
-        else:
-            current += line
-    if current.strip():
-        result.append(current.rstrip())
-    return result or [text[:_CHUNK_MAX_CHARS]]
+    for i in range(len(split_points) - 1):
+        chunk_bytes = data[split_points[i] : split_points[i + 1]]
+        try:
+            chunk_text = chunk_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            chunk_text = chunk_bytes.decode("utf-8", errors="replace")
+        chunk_text = chunk_text.strip()
+        if len(chunk_text) >= _CHUNK_MIN_CHARS:
+            result.append(chunk_text)
+
+    return result or ([text.strip()] if text.strip() else [])
+
+
+def _snap_to_newline(data: bytes, pos: int, window: int = 256) -> int:
+    """Snap byte position to nearest newline within window, or return pos."""
+    if pos <= 0 or pos >= len(data):
+        return pos
+    if data[pos - 1] == 0x0A:
+        return pos  # already at line boundary
+
+    # Search backward
+    bwd = None
+    for j in range(pos - 1, max(0, pos - window) - 1, -1):
+        if data[j] == 0x0A:
+            bwd = j + 1
+            break
+
+    # Search forward
+    fwd = None
+    for j in range(pos, min(len(data), pos + window)):
+        if data[j] == 0x0A:
+            fwd = j + 1
+            break
+
+    if fwd is not None and bwd is not None:
+        return fwd if (fwd - pos) <= (pos - bwd) else bwd
+    if fwd is not None:
+        return fwd
+    if bwd is not None:
+        return bwd
+    return pos
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +280,7 @@ def index_file(
             (slug, title, "doc", now, 0),
         )
 
-        chunks = _paragraph_chunks(text)
+        chunks = _fastcdc_chunks(text)
         for idx, chunk in enumerate(chunks):
             cid = _chunk_id(slug, idx)
             conn.execute(

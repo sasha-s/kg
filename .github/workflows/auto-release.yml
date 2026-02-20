@@ -1,0 +1,69 @@
+name: Auto-release on version bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need previous commit to compare
+
+      - name: Check if version changed
+        id: version
+        run: |
+          # Get current version
+          CURRENT=$(grep '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+
+          # Get previous version
+          PREVIOUS=$(git show HEAD^:pyproject.toml 2>/dev/null | grep '^version' | sed 's/.*"\(.*\)".*/\1/' || echo "")
+          echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
+
+          # Check if changed
+          if [ "$CURRENT" != "$PREVIOUS" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version changed: $PREVIOUS -> $CURRENT"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $CURRENT"
+          fi
+
+      - name: Check if tag exists
+        id: tag
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.current }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG does not exist"
+          fi
+
+      - name: Create tag and release
+        if: steps.version.outputs.changed == 'true' && steps.tag.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.version.outputs.current }}"
+
+          # Create annotated tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+          # Create GitHub release
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes
