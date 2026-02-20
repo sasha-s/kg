@@ -1303,7 +1303,9 @@ def status() -> None:
     table.add_row("", "")
     if cfg.sources:
         # Fetch per-source indexed stats from DB
+        from collections import Counter as _Counter
         src_stats: dict[str, dict] = {}
+        src_ext_top: dict[str, list[tuple[str, int]]] = {}
         if cfg.db_path.exists():
             with _cl.suppress(Exception):
                 from kg.indexer import _get_conn as _igc
@@ -1318,6 +1320,17 @@ def status() -> None:
                 ).fetchall():
                     sn, nf, nc, nb = row
                     src_stats[sn or ""] = {"files": nf, "chunks": nc, "bytes": nb or 0}
+                # Extension breakdown per source
+                _ext_by: dict[str, _Counter[str]] = {}
+                for sn, rel in _sc.execute(
+                    "SELECT source_name, rel_path FROM file_sources"
+                ).fetchall():
+                    key = sn or ""
+                    if key not in _ext_by:
+                        _ext_by[key] = _Counter()
+                    _ext_by[key][Path(rel).suffix.lower() or "(none)"] += 1
+                for key, ctr in _ext_by.items():
+                    src_ext_top[key] = ctr.most_common(3)
                 _sc.close()
 
         table.add_row("Sources", str(len(cfg.sources)))
@@ -1339,16 +1352,22 @@ def status() -> None:
                 )
             else:
                 path_ok = "[green]✓[/green]"
-            includes = ", ".join(src.include[:3])
-            if len(src.include) > 3:
-                includes += f", +{len(src.include) - 3} more"
-            table.add_row(f"  {abs_p.name}", f"{name_part}{path_ok}  {includes}")
+            # Row 1: name + git/path status + full path
+            table.add_row(f"  {abs_p.name}", f"{name_part}{path_ok}  {abs_p}")
+            # Row 2: all include patterns (strip **/ prefix for brevity)
+            pats_str = ", ".join(p.removeprefix("**/") for p in src.include)
+            table.add_row("", f"[dim]{pats_str}[/dim]")
+            # Row 3: indexed stats + top-3 extension breakdown
             st = src_stats.get(src.name or "")
             if st and st["files"] > 0:
                 kb = st["bytes"] / 1000
+                top_ext = src_ext_top.get(src.name or "", [])
+                ext_str = ""
+                if top_ext:
+                    ext_str = "  (" + ", ".join(f"{e}: {n}" for e, n in top_ext) + ")"
                 table.add_row(
                     "",
-                    f"[dim]{st['files']} files · {st['chunks']} chunks · {kb:.0f} KB[/dim]",
+                    f"[dim]{st['files']} files · {st['chunks']} chunks · {kb:.0f} KB{ext_str}[/dim]",
                 )
     else:
         from rich.markup import escape as _markup_escape
