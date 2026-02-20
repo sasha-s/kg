@@ -13,7 +13,6 @@ Commands:
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from pathlib import Path
 
@@ -22,9 +21,17 @@ import click
 from kg.bootstrap import bootstrap_patterns
 from kg.config import KGConfig, SourceConfig, init_config, load_config
 from kg.context import build_context
-from kg.daemon import ensure_watcher, stop_watcher, watcher_status
+from kg.daemon import (
+    ensure_vector_server,
+    ensure_watcher,
+    stop_vector_server,
+    stop_watcher,
+    vector_server_status,
+    watcher_status,
+)
+from kg.db import get_conn as _get_db_conn
 from kg.file_indexer import collect_files, index_source
-from kg.indexer import index_node, rebuild_all, search_fts
+from kg.indexer import calibrate, get_calibration_status, index_node, rebuild_all, search_fts
 from kg.install import ensure_hook_installed, ensure_mcp_registered, hook_status, mcp_health
 from kg.mcp import run_server
 from kg.reader import FileStore
@@ -89,7 +96,7 @@ def reindex() -> None:
     """Rebuild SQLite index from all node.jsonl files."""
     cfg = _load_cfg()
     cfg.ensure_dirs()
-    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True)
+    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
     click.echo(f"Indexed {n} nodes")
 
 
@@ -98,8 +105,39 @@ def upgrade() -> None:
     """Rebuild index and apply any schema migrations (safe to run anytime)."""
     cfg = _load_cfg()
     cfg.ensure_dirs()
-    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True)
+    n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
     click.echo(f"Upgraded: indexed {n} nodes")
+
+
+@cli.command()
+@click.option("--sample-size", default=200, show_default=True, help="Bullets to sample for calibration")
+def calibrate_cmd(sample_size: int) -> None:
+    """Calibrate FTS and vector search score quantiles.
+
+    Samples bullets, runs searches, computes percentile breakpoints used to
+    normalize scores when blending FTS and vector results.
+    """
+    cfg = _load_cfg()
+    result = calibrate(cfg.db_path, cfg, sample_size=sample_size)
+    if "error" in result:
+        click.echo(f"Error: {result['error']}", err=True)
+        return
+    if "warning" in result:
+        click.echo(f"Warning: {result['warning']}", err=True)
+        return
+    parts = [f"Sampled {result['bullets_sampled']} bullets"]
+    if result.get("fts_calibrated"):
+        parts.append(f"FTS: {result['fts_scores']} scores → calibrated")
+    else:
+        parts.append(f"FTS: {result.get('fts_scores', 0)} scores (need ≥20 to calibrate)")
+    if result.get("vec_calibrated"):
+        parts.append(f"Vector: {result['vec_scores']} scores → calibrated")
+    elif result.get("vec_scores", 0) > 0:
+        parts.append(f"Vector: {result['vec_scores']} scores (need ≥20 to calibrate)")
+    click.echo("\n".join(parts))
+
+
+cli.add_command(calibrate_cmd, name="calibrate")
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +157,7 @@ def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     bullet = store.add_bullet(slug, text=text, bullet_type=bullet_type, status=status)
-    index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
+    index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path, cfg=cfg)
     click.echo(bullet.id)
 
 
@@ -181,15 +219,15 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         if node is None:
             raise click.ClickException(f"Node not found: {slug}")
         store.clear_node_budget(slug)
-        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
+        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path, cfg=cfg)
         click.echo(f"Marked reviewed: [{slug}] {node.title}  (budget cleared)")
         return
 
     # List nodes needing review
-    if not cfg.db_path.exists():
+    if not cfg.use_turso and not cfg.db_path.exists():
         click.echo("No index found — run `kg reindex` first")
         return
-    conn = sqlite3.connect(str(cfg.db_path))
+    conn = _get_db_conn(cfg)
     rows = conn.execute(
         """SELECT slug, title, bullet_count, token_budget, last_reviewed
            FROM nodes
@@ -215,11 +253,12 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
 
 @cli.command()
 @click.argument("query", required=False)
-@click.option("--query-file", "-Q", "-q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
+@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True), help="Read query from file (avoids shell escaping)")
+@click.option("--rerank-query", "-q", "rerank_query", default=None, help="Rerank results with this query (defaults to search query)")
 @click.option("--session", "-s", default=None, help="Session ID (reserved for future session-aware boost)")
 @click.option("--limit", "-n", default=20, show_default=True)
 @click.option("--flat", is_flag=True, help="Show individual bullets, not grouped by node")
-def search(query: str | None, query_file: str | None, session: str | None, limit: int, flat: bool) -> None:  # noqa: ARG001
+def search(query: str | None, query_file: str | None, rerank_query: str | None, session: str | None, limit: int, flat: bool) -> None:  # noqa: ARG001
     """FTS5 search over bullets."""
     if query_file:
         query = Path(query_file).read_text().strip()
@@ -227,7 +266,7 @@ def search(query: str | None, query_file: str | None, session: str | None, limit
         raise click.ClickException("Provide QUERY or --query-file / -Q")
 
     cfg = _load_cfg()
-    rows = search_fts(query, cfg.db_path, limit=limit)
+    rows = search_fts(query, cfg.db_path, limit=limit, cfg=cfg)
     if not rows:
         click.echo("(no results)")
         return
@@ -243,7 +282,7 @@ def search(query: str | None, query_file: str | None, session: str | None, limit
         groups.setdefault(r["slug"], []).append(r)
 
     if cfg.db_path.exists():
-        conn = sqlite3.connect(str(cfg.db_path))
+        conn = _get_db_conn(cfg)
         titles: dict[str, str] = dict(
             conn.execute(
                 f"SELECT slug, title FROM nodes WHERE slug IN ({','.join('?' * len(groups))})",  # noqa: S608
@@ -272,7 +311,8 @@ def search(query: str | None, query_file: str | None, session: str | None, limit
 @click.option("--session", "-s", default=None, help="Session ID for differential context")
 @click.option("--max-tokens", default=1000, show_default=True)
 @click.option("--limit", "-n", default=20, show_default=True)
-@click.option("--query-file", "-Q", "-q", default=None, type=click.Path(exists=True))
+@click.option("--query-file", "-Q", default=None, type=click.Path(exists=True))
+@click.option("--rerank-query", "-q", "rerank_query", default=None, help="Rerank results with this query (defaults to search query)")
 def context(
     query: str | None,
     compact: bool,  # noqa: ARG001  (reserved for future non-compact mode)
@@ -280,6 +320,7 @@ def context(
     max_tokens: int,
     limit: int,
     query_file: str | None,
+    rerank_query: str | None,
 ) -> None:
     """Packed context output for LLM injection."""
     if query_file:
@@ -292,9 +333,11 @@ def context(
         query,
         db_path=cfg.db_path,
         nodes_dir=cfg.nodes_dir,
+        cfg=cfg,
         max_tokens=max_tokens,
         limit=limit,
         session_id=session,
+        rerank_query=rerank_query,
         review_threshold=cfg.review.budget_threshold,
     )
 
@@ -408,6 +451,20 @@ def bootstrap(overwrite: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# kg vector-server
+# ---------------------------------------------------------------------------
+
+@cli.command("vector-server")
+@click.option("--root", default=None, help="Override project root")
+def vector_server_cmd(root: str | None) -> None:
+    """Start vector server in foreground (for debugging)."""
+    import subprocess
+    import sys
+    root_path = Path(root).resolve() if root else Path.cwd()
+    subprocess.run([sys.executable, "-m", "kg.vector_server", str(root_path)], check=False)
+
+
+# ---------------------------------------------------------------------------
 # kg start / status / stop
 # ---------------------------------------------------------------------------
 
@@ -420,7 +477,7 @@ def start(scope: str) -> None:
 
     # 1. Reindex
     click.echo("Indexing nodes...")
-    n = rebuild_all(cfg.nodes_dir, cfg.db_path)
+    n = rebuild_all(cfg.nodes_dir, cfg.db_path, cfg=cfg)
     click.echo(f"  ✓ Indexed {n} nodes")
 
     # 2. Index file sources
@@ -431,10 +488,25 @@ def start(scope: str) -> None:
             parts = [f"{v} {k}" for k, v in stats.items() if v]
             click.echo(f"  [{src.name or src.path}] {', '.join(parts) or 'no changes'}")
 
-    # 3. Watcher
+    # 3. Calibrate search scores
+    click.echo("Calibrating search scores...")
+    cal_result = calibrate(cfg.db_path, cfg)
+    if "error" in cal_result:
+        click.echo(f"  ✗ Calibration: {cal_result['error']}", err=True)
+    elif "warning" in cal_result:
+        click.echo(f"  ⚠ Calibration: {cal_result['warning']}")
+    else:
+        click.echo(f"  ✓ Calibrated ({cal_result['bullets_sampled']} bullets)")
+
+    # 4. Watcher
     click.echo("Starting watcher...")
     method, wstatus = ensure_watcher(cfg)
     click.echo(f"  ✓ Watcher [{method}]: {wstatus}")
+
+    # 4b. Vector server
+    click.echo("Starting vector server...")
+    vmethod, vstatus = ensure_vector_server(cfg)
+    click.echo(f"  ✓ Vector server [{vmethod}]: {vstatus}")
 
     # 4. MCP server
     click.echo("Registering MCP server...")
@@ -458,9 +530,9 @@ def status() -> None:
 
     click.echo(f"Project   : {cfg.name}  ({cfg.root})")
 
-    # Node + bullet stats from SQLite (fast)
-    if cfg.db_path.exists():
-        conn = sqlite3.connect(str(cfg.db_path))
+    # Node + bullet stats
+    if cfg.use_turso or cfg.db_path.exists():
+        conn = _get_db_conn(cfg)
         row = conn.execute(
             "SELECT COUNT(*), SUM(bullet_count) FROM nodes WHERE type NOT GLOB '_*'"
         ).fetchone()
@@ -472,34 +544,57 @@ def status() -> None:
         conn.close()
         review_hint = f"  ⚠ {review_count} need review" if review_count else ""
         click.echo(f"Nodes     : {n_nodes} nodes, {n_bullets} bullets{review_hint}")
-        db_mtime = cfg.db_path.stat().st_mtime
-        age_s = int(time.time() - db_mtime)
-        if age_s < 120:
-            age = f"{age_s}s ago"
-        elif age_s < 3600:
-            age = f"{age_s // 60}m ago"
-        else:
-            age = f"{age_s // 3600}h ago"
-        click.echo(f"Index     : {cfg.db_path}  (updated {age})")
+        if cfg.use_turso:
+            click.echo(f"Index     : {cfg.database.url}")
+        elif cfg.db_path.exists():
+            age_s = int(time.time() - cfg.db_path.stat().st_mtime)
+            if age_s < 120:
+                age = f"{age_s}s ago"
+            elif age_s < 3600:
+                age = f"{age_s // 60}m ago"
+            else:
+                age = f"{age_s // 3600}h ago"
+            click.echo(f"Index     : {cfg.db_path}  (updated {age})")
     else:
         store = FileStore(cfg.nodes_dir)
         n_nodes = len(store.list_slugs())
         click.echo(f"Nodes     : {n_nodes} (no index — run `kg reindex`)")
         click.echo(f"Index     : {cfg.db_path}  (missing)")
 
+    # Calibration status
+    cal = get_calibration_status(cfg.db_path, cfg)
+    if cal is None:
+        click.echo("Calibration: never  — run `kg calibrate`")
+    else:
+        ops = cal["ops_since"]
+        delta = cal["current_bullets"] - cal["bullet_count"]
+        delta_str = f"+{delta}" if delta >= 0 else str(delta)
+        stale = ops >= 20 or abs(delta) > max(5, cal["bullet_count"] // 10)
+        flag = "⚠ stale" if stale else "current"
+        hint = "  — run `kg calibrate`" if stale else ""
+        click.echo(
+            f"Calibration: {flag}  ({cal['bullet_count']} bullets, "
+            f"{ops} ops since, {delta_str} bullets){hint}"
+        )
+
     w_status = watcher_status(cfg)
     w_hint = "  — run `kg start` to start" if w_status == "stopped" else ""
     click.echo(f"Watcher   : {w_status}{w_hint}")
+    vs_status = vector_server_status(cfg)
+    vs_hint = "  — run `kg start` to start" if vs_status == "stopped" else ""
+    click.echo(f"Vectors   : {vs_status}{vs_hint}")
     click.echo(f"MCP       : {mcp_health(cfg)}")
     click.echo(f"Hook      : {hook_status()}")
 
 
 @cli.command()
 def stop() -> None:
-    """Stop the background watcher (if running via PID file)."""
+    """Stop the background watcher and vector server (if running via PID file)."""
     cfg = _load_cfg()
     result = stop_watcher(cfg)
     click.echo(f"Watcher: {result}")
+    vresult = stop_vector_server(cfg)
+    click.echo(f"Vector server: {vresult}")
 
 
 # ---------------------------------------------------------------------------

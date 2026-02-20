@@ -21,16 +21,21 @@ import logging
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from kg.config import load_config
 from kg.file_indexer import index_file
 from kg.file_indexer import index_source as _poll_index_source
 from kg.indexer import index_node
 
+if TYPE_CHECKING:
+    from kg.config import KGConfig
+
 logger = logging.getLogger("kg.watcher")
 
 _POLL_INTERVAL = 30.0      # seconds between periodic full-source polls
 _INOTIFY_TIMEOUT_MS = 5000
+_CALIBRATE_INTERVAL = 300.0   # seconds between auto-calibration checks
 
 
 # ---------------------------------------------------------------------------
@@ -66,12 +71,31 @@ def _slug_from_path(nodes_dir: Path, changed: Path) -> str | None:
 # inotify watcher
 # ---------------------------------------------------------------------------
 
-def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None) -> None:
+def _auto_calibrate_if_stale(db_path: Path, cfg: KGConfig) -> None:
+    """Run calibration if ops/bullet threshold exceeded."""
+    try:
+        from kg.indexer import calibrate, get_calibration_status
+        status = get_calibration_status(db_path, cfg)
+        threshold = cfg.search.auto_calibrate_threshold
+        if status is None:
+            calibrate(db_path, cfg)
+            logger.info("auto-calibrate: initial calibration done")
+        else:
+            ops = status["ops_since"]
+            bullet_count = max(1, status["bullet_count"])
+            if ops / bullet_count >= threshold:
+                calibrate(db_path, cfg)
+                logger.info("auto-calibrate: recalibrated (ops=%d, bullets=%d)", ops, bullet_count)
+    except Exception:
+        logger.exception("auto-calibrate failed")
+
+
+def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None, cfg: KGConfig | None = None) -> None:
     """Watch using inotify_simple (Linux). Blocks forever.
 
     sources: list of {path: Path, name: str, max_size_kb: int}
     """
-    import inotify_simple  # type: ignore[import]  # noqa: PLC0415 — optional dep, checked via ImportError
+    import inotify_simple  # type: ignore[import]
 
     inotify = inotify_simple.INotify()
     flags = inotify_simple.flags  # type: ignore[attr-defined]
@@ -108,6 +132,7 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
     logger.info("inotify watching nodes=%s, sources=%d", nodes_dir, len(sources or []))
 
     last_poll = time.monotonic()
+    last_calibrate = time.monotonic()
 
     while True:
         for event in inotify.read(timeout=_INOTIFY_TIMEOUT_MS):
@@ -160,6 +185,11 @@ def watch_inotify(nodes_dir: Path, db_path: Path, sources: list[dict] | None = N
             _poll_sources(sources, db_path)
             last_poll = now
 
+        now_cal = time.monotonic()
+        if now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
+            _auto_calibrate_if_stale(db_path, cfg)
+            last_calibrate = now_cal
+
 
 # ---------------------------------------------------------------------------
 # Polling fallback
@@ -180,12 +210,14 @@ def watch_poll(
     db_path: Path,
     sources: list[dict] | None = None,
     interval: float = 1.0,
+    cfg: KGConfig | None = None,
 ) -> None:
     """Polling fallback for macOS/Docker. Checks mtime every interval seconds."""
     seen_nodes: dict[Path, float] = {}
     seen_files: dict[Path, float] = {}
     logger.info("polling nodes=%s interval=%.1fs", nodes_dir, interval)
     last_source_poll = time.monotonic()
+    last_calibrate = time.monotonic()
 
     while True:
         # Poll nodes/
@@ -228,6 +260,11 @@ def watch_poll(
                         )
             last_source_poll = now
 
+        now_cal = time.monotonic()
+        if now_cal - last_calibrate >= _CALIBRATE_INTERVAL and cfg is not None:
+            _auto_calibrate_if_stale(db_path, cfg)
+            last_calibrate = now_cal
+
         time.sleep(interval)
 
 
@@ -235,9 +272,19 @@ def watch_poll(
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _load_sources(config_root: Path | None) -> tuple[Path, Path, list[dict]]:
+def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None, cfg: KGConfig | None = None) -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    try:
+        watch_inotify(nodes_dir, db_path, sources, cfg=cfg)
+    except ImportError:
+        logger.warning("inotify_simple not available, falling back to polling")
+        watch_poll(nodes_dir, db_path, sources, cfg=cfg)
+
+
+def run_from_config(config_root: Path | None = None) -> None:
+    """Load kg.toml and start the watcher."""
     cfg = load_config(config_root)
-    sources = [
+    nodes_dir, db_path, sources = cfg.nodes_dir, cfg.db_path, [
         {
             "path": src.abs_path,
             "name": src.name,
@@ -246,22 +293,7 @@ def _load_sources(config_root: Path | None) -> tuple[Path, Path, list[dict]]:
         }
         for src in cfg.sources
     ]
-    return cfg.nodes_dir, cfg.db_path, sources
-
-
-def run(nodes_dir: Path, db_path: Path, sources: list[dict] | None = None) -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    try:
-        watch_inotify(nodes_dir, db_path, sources)
-    except ImportError:
-        logger.warning("inotify_simple not available, falling back to polling")
-        watch_poll(nodes_dir, db_path, sources)
-
-
-def run_from_config(config_root: Path | None = None) -> None:
-    """Load kg.toml and start the watcher."""
-    nodes_dir, db_path, sources = _load_sources(config_root)
-    run(nodes_dir, db_path, sources)
+    run(nodes_dir, db_path, sources, cfg=cfg)
 
 
 if __name__ == "__main__":

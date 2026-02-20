@@ -16,11 +16,13 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from kg.indexer import get_backlinks, search_fts
+from kg.indexer import get_backlinks, get_calibration, score_to_quantile, search_fts
 from kg.reader import FileStore
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from kg.config import KGConfig
 
 _CROSSREF_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
 _INTERNAL_PREFIX = ("_",)
@@ -74,9 +76,11 @@ def build_context(
     *,
     db_path: Path,
     nodes_dir: Path,
+    cfg: KGConfig | None = None,
     max_tokens: int = 1000,
     limit: int = 20,
-    session_id: str | None = None,  # noqa: ARG001  (reserved for differential context)
+    session_id: str | None = None,
+    rerank_query: str | None = None,
     seen_slugs: set[str] | None = None,
     update_budget: bool = True,
     review_threshold: float = 500.0,
@@ -88,11 +92,25 @@ def build_context(
     """
     char_budget = max_tokens * 4  # rough: 1 token ≈ 4 chars
 
-    raw = search_fts(query, db_path, limit=limit * 3)
+    # Load session transcript fingerprint for dedup and boost
+    fp = None
+    session_ref_slugs: set[str] = set()
+    if session_id:
+        with contextlib.suppress(Exception):
+            from kg.transcript import fingerprint_transcript, resolve_session_transcript
+            tp = resolve_session_transcript(session_id)
+            if tp:
+                fp = fingerprint_transcript(tp)
+                # Extract [slug] cross-refs from transcript for score boosting
+                import re as _re
+                for _slug in _re.findall(r"\[([a-z_][a-z0-9_]+-[a-z][a-z0-9_-]*[a-z0-9])\]", fp.text):
+                    session_ref_slugs.add(_slug)
 
-    # Group by slug, preserve best rank per slug
+    raw = search_fts(query, db_path, limit=limit * 3, cfg=cfg)
+
+    # Group bullets by slug; track best raw FTS score per slug (negated bm25, higher = better)
     groups: dict[str, list[tuple[str, str]]] = {}
-    slug_rank: dict[str, float] = {}
+    fts_scores: dict[str, float] = {}
     for r in raw:
         slug = r["slug"]
         if slug.startswith(_INTERNAL_PREFIX):
@@ -101,10 +119,45 @@ def build_context(
             continue
         if slug not in groups:
             groups[slug] = []
-            slug_rank[slug] = abs(r["rank"])
+            fts_scores[slug] = -r["rank"]   # negate: higher = better
         groups[slug].append((r["bullet_id"], r["text"]))
 
-    sorted_slugs = sorted(groups, key=lambda s: slug_rank[s])
+    # 1.3x boost for nodes mentioned in the current session
+    if session_ref_slugs:
+        for _s in fts_scores:
+            if _s in session_ref_slugs:
+                fts_scores[_s] *= 1.3
+
+    # Vector search
+    vec_scores: dict[str, float] = {}
+    if cfg is not None:
+        with contextlib.suppress(Exception):
+            from kg.vector_client import search_vector
+            for slug, score in search_vector(query, cfg, k=limit * 3):
+                if not slug.startswith(_INTERNAL_PREFIX):
+                    vec_scores[slug] = float(score)
+
+    sorted_slugs = _rank_slugs(groups, fts_scores, vec_scores, db_path, cfg)
+
+    # Rerank top results with cross-encoder (uses rerank_query or query)
+    if cfg is not None and cfg.search.use_reranker and len(sorted_slugs) >= 2:
+        _rq = rerank_query or query
+        with contextlib.suppress(Exception):
+            from kg.reranker import rerank as _rerank
+            store_tmp = FileStore(nodes_dir)
+            candidates: list[tuple[str, str]] = []
+            for _slug in sorted_slugs[:min(len(sorted_slugs), limit * 2)]:
+                _node = store_tmp.get(_slug)
+                if _node is None:
+                    continue
+                _text = _node.title + " " + " ".join(b.text for b in _node.live_bullets[:5])
+                candidates.append((_slug, _text))
+            if len(candidates) >= 2:
+                reranked = _rerank(_rq, candidates, cfg)
+                reranked_order = [s for s, _ in reranked]
+                # Keep any slugs not in candidates at the end
+                rest = [s for s in sorted_slugs if s not in {s for s, _ in candidates}]
+                sorted_slugs = reranked_order + rest
 
     store = FileStore(nodes_dir)
     packed_nodes: list[ContextNode] = []
@@ -122,13 +175,22 @@ def build_context(
         matched_ids = {bid for bid, _ in groups[slug]}
         bullets = [(b.id, b.text) for b in live if b.id in matched_ids]
 
+        # Filter bullets already shown in this session
+        if fp is not None:
+            bullets = [
+                (bid, text) for bid, text in bullets
+                if bid not in fp.ids and (not fp.text or text not in fp.text)
+            ]
+            if not bullets:
+                continue
+
         # Explore hints from cross-refs and backlinks
         explore: set[str] = set()
         for _, text in bullets:
             for ref in _CROSSREF_RE.findall(text):
                 if ref != slug and not ref.startswith(_INTERNAL_PREFIX):
                     explore.add(ref)
-        for bl in get_backlinks(slug, db_path)[:4]:
+        for bl in get_backlinks(slug, db_path, cfg=cfg)[:4]:
             if not bl.startswith(_INTERNAL_PREFIX):
                 explore.add(bl)
 
@@ -137,7 +199,7 @@ def build_context(
         ctx_node = ContextNode(
             slug=slug,
             title=node.title,
-            score=1.0 / (1.0 + slug_rank[slug]),
+            score=fts_scores.get(slug, 0.0),  # raw for display; fusion used for ranking
             bullets=bullets,
             total_bullets=len(live),
             token_budget=node.token_budget,
@@ -170,3 +232,54 @@ def _update_budgets(nodes: list[ContextNode], store: FileStore) -> None:
         chars = len(ctx_node.format_compact())
         with contextlib.suppress(Exception):  # never fail context output due to budget update
             store.update_node_budget(ctx_node.slug, chars)
+
+
+def _rank_slugs(
+    groups: dict[str, list[tuple[str, str]]],
+    fts_scores: dict[str, float],
+    vec_scores: dict[str, float],
+    db_path: Path,
+    cfg: KGConfig | None,
+) -> list[str]:
+    """Rank FTS-matched slugs using calibrated quantile fusion (or rank-based fallback).
+
+    FTS scores: negated bm25, higher = better.
+    Vector scores: cosine similarity 0-1, higher = better.
+    Returns slugs sorted best-first.
+    """
+    fts_w = cfg.search.fts_weight if cfg is not None else 0.5
+    vec_w = cfg.search.vector_weight if cfg is not None else 0.5
+    dual_bonus = cfg.search.dual_match_bonus if cfg is not None else 0.1
+
+    # Load calibration breakpoints
+    fts_cal = get_calibration("fts", db_path, cfg)
+    vec_cal = get_calibration("vector", db_path, cfg)
+    fts_breaks = fts_cal[1] if fts_cal else None
+    vec_breaks = vec_cal[1] if vec_cal else None
+
+    # Pre-compute rank-based fallback percentiles for FTS
+    fts_ranked = sorted(fts_scores.items(), key=lambda x: x[1], reverse=True)
+    n_fts = len(fts_ranked)
+    fts_rank_pos = {slug: i for i, (slug, _) in enumerate(fts_ranked)}
+
+    slug_score: dict[str, float] = {}
+    for slug in groups:
+        fts_raw = fts_scores.get(slug, 0.0)
+        vec_raw = vec_scores.get(slug, 0.0)
+
+        # FTS quantile
+        if fts_breaks and fts_raw > 0:
+            fts_q = score_to_quantile(fts_raw, fts_breaks)
+        elif n_fts > 1:
+            pos = fts_rank_pos.get(slug, n_fts - 1)
+            fts_q = 1.0 - pos / (n_fts - 1)
+        else:
+            fts_q = 1.0 if fts_raw > 0 else 0.0
+
+        # Vector quantile (cosine is already 0-1, use as-is when no calibration)
+        vec_q = score_to_quantile(vec_raw, vec_breaks) if vec_breaks and vec_raw > 0 else vec_raw
+
+        bonus = dual_bonus if (fts_raw > 0 and vec_raw > 0) else 0.0
+        slug_score[slug] = fts_w * fts_q + vec_w * vec_q + bonus
+
+    return sorted(groups, key=lambda s: slug_score[s], reverse=True)

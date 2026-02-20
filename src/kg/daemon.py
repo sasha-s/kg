@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from kg.config import KGConfig
 
 _SUPERVISORD_PROGRAM = "kg-watcher"
+_SUPERVISORD_VECTOR_PROGRAM = "kg-vector-server"
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,16 @@ stdout_logfile={log_dir / "watcher.log"}
 stderr_logfile={log_dir / "watcher.log"}
 stdout_logfile_maxbytes=2MB
 stdout_logfile_backups=2
+
+[program:{_SUPERVISORD_VECTOR_PROGRAM}]
+command={python} -m kg.vector_server {cfg.root}
+autostart=true
+autorestart=true
+startretries=5
+stdout_logfile={log_dir / "vector_server.log"}
+stderr_logfile={log_dir / "vector_server.log"}
+stdout_logfile_maxbytes=2MB
+stdout_logfile_backups=2
 """
     conf_path.write_text(conf)
     return conf_path
@@ -87,7 +98,7 @@ def _supervisord_running(cfg: KGConfig) -> bool:
 def _start_supervisord(cfg: KGConfig) -> bool:
     """Generate config and start supervisord. Returns True on success."""
     try:
-        import supervisord  # type: ignore[import-untyped]  # noqa: F401, PLC0415 — optional dep check
+        import supervisord  # type: ignore[import-untyped]  # noqa: F401 — optional dep check
     except ImportError:
         return False
 
@@ -151,6 +162,30 @@ def _stop_bg_watcher(cfg: KGConfig) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Vector server PID file helpers
+# ---------------------------------------------------------------------------
+
+def _vector_pid_file(cfg: KGConfig) -> Path:
+    return cfg.index_dir / "vector_server.pid"
+
+
+def _start_bg_vector_server(cfg: KGConfig) -> int:
+    """Start vector server as background subprocess. Returns PID."""
+    pid_file = _vector_pid_file(cfg)
+    log_file = cfg.index_dir / "logs" / "vector_server.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    with log_file.open("a") as log:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "kg.vector_server", str(cfg.root)],
+            stdout=log,
+            stderr=log,
+            start_new_session=True,
+        )
+    pid_file.write_text(str(proc.pid))
+    return proc.pid
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -190,3 +225,41 @@ def stop_watcher(cfg: KGConfig) -> str:
     if _supervisord_running(cfg):
         return "supervisord manages watcher — use supervisorctl to stop"
     return "not running"
+
+
+def ensure_vector_server(cfg: KGConfig) -> tuple[str, str]:
+    """Ensure vector server is running. Returns (method, status)."""
+    # supervisord manages it alongside watcher — check if supervisord is running
+    if _supervisord_running(cfg):
+        return ("supervisord", "managed by supervisord")
+    # fallback: PID file
+    pid_file = _vector_pid_file(cfg)
+    if _pid_running(pid_file):
+        pid = int(pid_file.read_text().strip())
+        return ("bg-process", f"already running (pid {pid})")
+    pid = _start_bg_vector_server(cfg)
+    return ("bg-process", f"started (pid {pid})")
+
+
+def vector_server_status(cfg: KGConfig) -> str:
+    if _supervisord_running(cfg):
+        return "running via supervisord"
+    pid_file = _vector_pid_file(cfg)
+    if _pid_running(pid_file):
+        pid = int(pid_file.read_text().strip())
+        return f"running (pid {pid})"
+    return "stopped"
+
+
+def stop_vector_server(cfg: KGConfig) -> str:
+    pid_file = _vector_pid_file(cfg)
+    if not pid_file.exists():
+        return "not running"
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        pid_file.unlink(missing_ok=True)
+        return "stopped"
+    except (ValueError, ProcessLookupError):
+        pid_file.unlink(missing_ok=True)
+        return "not running"

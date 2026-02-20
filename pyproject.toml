@@ -4,18 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kg"
-version = "0.2.6"
+version = "0.3.0"
 description = "Lightweight knowledge graph: JSONL files, SQLite index, inotify watcher"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "click>=8.0",
+    "diskcache>=5.6.3",
+    "google-genai>=1.0",
+    "numpy>=2.4.2",
 ]
 
 [project.optional-dependencies]
 embeddings = [
-    "openai",
+    "diskcache>=5.6",
+    "numpy>=1.26",
+    "google-genai>=1.0",
+]
+embeddings-local = [
+    "diskcache>=5.6",
+    "numpy>=1.26",
+    "fastembed>=0.4",
+]
+turso = [
+    "libsql",
 ]
 watch = [
     "inotify-simple",
@@ -60,8 +73,12 @@ ignore = [
     "PERF401",  # list-comprehension not always clearer than explicit loop
     "E501",     # line length managed by ruff format
     "PLW2901",  # loop variable shadowing OK (e.g. building paths)
+    "PLC0415",  # import not at top level - intentional for lazy optional deps
 ]
 
 [tool.basedpyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
+reportMissingImports = false      # optional deps (numpy, fastembed, diskcache, google-genai) not installed
+reportMissingTypeStubs = false    # many third-party packages lack stubs
+reportAttributeAccessIssue = false  # google.genai dynamic attributes

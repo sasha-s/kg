@@ -3,6 +3,7 @@
 Default layout (all relative to the project root):
 
     kg.toml               # project config (git-tracked)
+    .env                  # optional: TURSO_URL, TURSO_TOKEN, GEMINI_API_KEY (gitignore this)
     .kg/
         nodes/            # node JSONL files (git-tracked)
             <slug>/
@@ -28,10 +29,23 @@ kg.toml example:
     max_size_kb = 512
 
     [embeddings]
-    model = "openai:text-embedding-3-small"
+    model = "gemini:gemini-embedding-001"
+
+    [database]
+    url = ""    # libsql://... for Turso, empty = local SQLite
+    token = ""  # JWT auth token (or set TURSO_URL / TURSO_TOKEN in .env)
 
     [server]
     port = 7343
+    vector_port = 7344
+
+    [search]
+    fts_weight = 0.5
+    vector_weight = 0.5
+    dual_match_bonus = 0.1
+    use_reranker = true
+    reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
+    auto_calibrate_threshold = 0.05
 """
 
 from __future__ import annotations
@@ -91,12 +105,29 @@ class ReviewConfig:
 
 @dataclass
 class EmbeddingsConfig:
-    model: str = "openai:text-embedding-3-small"
+    model: str = "gemini:gemini-embedding-001"
+
+
+@dataclass
+class DatabaseConfig:
+    url: str = ""    # libsql://... for Turso, empty = local SQLite
+    token: str = ""  # JWT auth token
 
 
 @dataclass
 class ServerConfig:
     port: int = 7343
+    vector_port: int = 7344
+
+
+@dataclass
+class SearchConfig:
+    fts_weight: float = 0.5
+    vector_weight: float = 0.5
+    dual_match_bonus: float = 0.1
+    use_reranker: bool = True
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    auto_calibrate_threshold: float = 0.05   # fraction of bullets changed to trigger recal
 
 
 @dataclass
@@ -110,11 +141,17 @@ class KGConfig:
     sources: list[SourceConfig] = field(default_factory=list)
     review: ReviewConfig = field(default_factory=ReviewConfig)
     embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
+    database: DatabaseConfig = field(default_factory=DatabaseConfig)
     server: ServerConfig = field(default_factory=ServerConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     @property
     def db_path(self) -> Path:
         return self.index_dir / "graph.db"
+
+    @property
+    def use_turso(self) -> bool:
+        return bool(self.database.url)
 
     def ensure_dirs(self) -> None:
         """Create nodes_dir and index_dir if they don't exist."""
@@ -130,6 +167,20 @@ class KGConfig:
             gitignore.write_text(_GITIGNORE_CONTENT)
 
 
+def _load_env(root: Path) -> dict[str, str]:
+    """Parse a simple KEY=VALUE .env file (no external dependency)."""
+    env_file = root / ".env"
+    if not env_file.exists():
+        return {}
+    env: dict[str, str] = {}
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            env[k.strip()] = v.strip().strip('"').strip("'")
+    return env
+
+
 def load_config(root: Path | str | None = None) -> KGConfig:
     """Load kg.toml from root (or search upward from cwd if root is None)."""
     root_path = _find_root(Path(root) if root else Path.cwd())
@@ -140,6 +191,14 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         with config_path.open("rb") as f:
             raw = tomllib.load(f)
 
+    # Load .env for secrets (TURSO_URL, TURSO_TOKEN, GEMINI_API_KEY)
+    env = _load_env(root_path)
+    # Inject API keys into os.environ so embedder/clients can find them
+    import os as _os
+    for _key in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY"):
+        if _key in env:
+            _os.environ.setdefault(_key, env[_key])
+
     kg_section = raw.get("kg", {})
     name = kg_section.get("name", root_path.name)
 
@@ -148,7 +207,9 @@ def load_config(root: Path | str | None = None) -> KGConfig:
 
     rev_section = raw.get("review", {})
     emb_section = raw.get("embeddings", {})
+    db_section = raw.get("database", {})
     srv_section = raw.get("server", {})
+    srch_section = raw.get("search", {})
 
     sources: list[SourceConfig] = []
     for s in raw.get("sources", []):
@@ -163,6 +224,10 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         src.resolve(root_path)
         sources.append(src)
 
+    # Database: .env overrides kg.toml for secrets
+    db_url: str = env.get("TURSO_URL") or str(db_section.get("url", ""))
+    db_token: str = env.get("TURSO_TOKEN") or str(db_section.get("token", ""))
+
     return KGConfig(
         root=root_path,
         name=name,
@@ -173,10 +238,23 @@ def load_config(root: Path | str | None = None) -> KGConfig:
             budget_threshold=float(rev_section.get("budget_threshold", 500.0)),
         ),
         embeddings=EmbeddingsConfig(
-            model=emb_section.get("model", "openai:text-embedding-3-small"),
+            model=emb_section.get("model", "gemini:gemini-embedding-001"),
+        ),
+        database=DatabaseConfig(
+            url=db_url,
+            token=db_token,
         ),
         server=ServerConfig(
             port=int(srv_section.get("port", 7343)),
+            vector_port=int(srv_section.get("vector_port", 7344)),
+        ),
+        search=SearchConfig(
+            fts_weight=float(srch_section.get("fts_weight", 0.5)),
+            vector_weight=float(srch_section.get("vector_weight", 0.5)),
+            dual_match_bonus=float(srch_section.get("dual_match_bonus", 0.1)),
+            use_reranker=bool(srch_section.get("use_reranker", True)),
+            reranker_model=srch_section.get("reranker_model", "Xenova/ms-marco-MiniLM-L-6-v2"),
+            auto_calibrate_threshold=float(srch_section.get("auto_calibrate_threshold", 0.05)),
         ),
     )
 
@@ -216,10 +294,23 @@ name = "{project_name}"
 # budget_threshold = 500   # chars served before flagging a node for review (default: 500)
 
 # [embeddings]
-# model = "openai:text-embedding-3-small"
+# model = "gemini:gemini-embedding-001"
+
+# [database]
+# url = ""    # libsql://... for Turso; or set TURSO_URL in .env
+# token = ""  # JWT auth token; or set TURSO_TOKEN in .env
 
 # [server]
 # port = 7343
+# vector_port = 7344
+
+# [search]
+# fts_weight = 0.5
+# vector_weight = 0.5
+# dual_match_bonus = 0.1
+# use_reranker = true
+# reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
+# auto_calibrate_threshold = 0.05   # recalibrate when this fraction of bullets changes
 """
     config_path.write_text(content)
     return config_path

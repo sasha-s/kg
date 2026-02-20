@@ -20,11 +20,39 @@ my-project/
 - No daemon required — SQLite index rebuilds from files in seconds
 - Git-friendly: content is plain text, metadata is append-only
 
+## Install
+
+**From git (latest):**
+```bash
+uv tool install "git+https://github.com/sasha-s/kg.git"
+```
+
+**With extras (Gemini embeddings + Linux file watching):**
+```bash
+uv tool install "kg[embeddings,watch] @ git+https://github.com/sasha-s/kg.git"
+```
+
+**Dev / editable:**
+```bash
+git clone https://github.com/sasha-s/kg.git
+uv tool install --editable ./kg
+```
+
+**Optional extras:**
+
+| Extra | Packages | Use |
+|-------|----------|-----|
+| `embeddings` | `diskcache`, `numpy`, `google-genai` | Gemini embeddings (default model) |
+| `embeddings-local` | `diskcache`, `numpy`, `fastembed` | Local ONNX embeddings (no API key) |
+| `watch` | `inotify-simple` | Linux inotify file watching |
+| `turso` | `libsql` | Turso remote SQLite (requires cmake) |
+| `dev` | `ruff`, `basedpyright`, `pytest` | Development tools |
+
 ## Quickstart
 
 ```bash
-pip install kg
 kg init             # write kg.toml + create .kg/
+kg start            # index, calibrate, start watcher + vector server, register MCP
 kg add my-note "discovered: async context managers don't propagate cancellation"
 kg search "async"
 kg context "cancellation"
@@ -33,19 +61,84 @@ kg context "cancellation"
 ## Commands
 
 ```
-kg init            create kg.toml and .kg/ directories
-kg reindex         rebuild SQLite from all node.jsonl files
-kg upgrade         reindex + schema migrations (safe to run anytime)
+kg init              create kg.toml and .kg/ directories
+kg start             index + calibrate + watcher + vector server + MCP + hook
+kg reindex           rebuild SQLite from all node.jsonl files
+kg calibrate         calibrate FTS/vector score quantiles (auto-runs on start)
+kg upgrade           reindex + schema migrations (safe to run anytime)
 kg add <slug> <text> [--type fact|gotcha|decision|task]
-kg show <slug>     dump a node's bullets
-kg search <query>  FTS5 search
-kg context <query> [-c] [--session ID] [--max-tokens N]
-kg serve           start stdio MCP server
+kg show <slug>       dump a node's bullets
+kg search <query> [-q rerank-query] [-n limit]
+kg context <query>  [-q rerank-query] [-s session-id] [--max-tokens N]
+kg serve             start stdio MCP server
+kg status            show node counts, calibration, watcher, vector server
+kg stop              stop watcher and vector server
+```
+
+## Search & Context
+
+Context retrieval uses hybrid FTS + vector search with calibrated quantile fusion:
+
+- **FTS (BM25)** — keyword matching, OR + prefix wildcards
+- **Vector search** — cosine similarity over Gemini or local fastembed embeddings
+- **Calibration** — maps raw scores to percentile quantiles before fusion
+- **Reranking** — cross-encoder (`Xenova/ms-marco-MiniLM-L-6-v2`) reranks final results
+- **Session dedup** — bullets already shown in the current session are filtered out
+- **Session boost** — nodes mentioned in the session get 1.3× score boost
+
+```bash
+kg context "query"              # hybrid search + rerank (cross-encoder used automatically)
+kg context "query" -q "intent"  # use different query for reranking
+kg context "query" -s SESSION_ID  # filter already-seen bullets for this session
+```
+
+## Configuration
+
+`kg.toml` (all sections optional):
+
+```toml
+[kg]
+name = "my-project"
+
+[embeddings]
+model = "gemini:gemini-embedding-001"   # or "fastembed:BAAI/bge-small-en-v1.5"
+
+[search]
+fts_weight = 0.5
+vector_weight = 0.5
+dual_match_bonus = 0.1
+use_reranker = true
+reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
+auto_calibrate_threshold = 0.05   # recalibrate when 5% of bullets change
+
+[review]
+budget_threshold = 500   # chars served before flagging for review
+
+[server]
+port = 7343
+vector_port = 7344
+
+# [[sources]]  — index source files for FTS (no LLM extraction)
+# name = "workspace"
+# path = "."
+# include = ["**/*.py", "**/*.md"]
+# use_git = true
+```
+
+Secrets go in `.env` (gitignored):
+```
+GEMINI_API_KEY=...
+TURSO_URL=libsql://...
+TURSO_TOKEN=...
 ```
 
 ## MCP Server (Claude Code)
 
-Add to `~/.claude/settings.json`:
+```bash
+kg start   # registers MCP automatically
+```
+
+Or manually in `~/.claude/settings.json`:
 
 ```json
 {
@@ -59,7 +152,7 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-MCP tools exposed (compatible with memory_graph):
+MCP tools (compatible with `memory_graph`):
 
 | Tool | Description |
 |------|-------------|
@@ -70,7 +163,7 @@ MCP tools exposed (compatible with memory_graph):
 
 ## Session ID Hook
 
-Auto-inject `session_id` into every Claude prompt — add to `~/.claude/settings.json`:
+`kg start` installs this automatically, or add manually to `~/.claude/settings.json`:
 
 ```json
 {
@@ -88,7 +181,6 @@ Auto-inject `session_id` into every Claude prompt — add to `~/.claude/settings
 Capture fleeting notes during a session:
 
 ```python
-# Via MCP
 memory_add_bullet(
     node_slug=f"_fleeting-{session_id[:12]}",
     text="discovered: X",

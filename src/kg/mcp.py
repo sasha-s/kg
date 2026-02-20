@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -134,6 +133,7 @@ class KGServer:
             args["query"],
             db_path=self._cfg.db_path,
             nodes_dir=self._cfg.nodes_dir,
+            cfg=self._cfg,
             max_tokens=int(args.get("max_tokens", 1000)),
             limit=int(args.get("limit", 20)),
             review_threshold=self._cfg.review.budget_threshold,
@@ -143,7 +143,7 @@ class KGServer:
         return result.format_compact()
 
     def _call_memory_search(self, args: dict[str, Any]) -> str:
-        rows = search_fts(args["query"], self._cfg.db_path, limit=int(args.get("limit", 20)))
+        rows = search_fts(args["query"], self._cfg.db_path, limit=int(args.get("limit", 20)), cfg=self._cfg)
         if not rows:
             return "(no results)"
         lines = []
@@ -179,15 +179,14 @@ class KGServer:
         if not store.exists(slug):
             return f"Node not found: {slug}"
         store.clear_node_budget(slug)
-        index_node(slug, nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
+        index_node(slug, nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path, cfg=self._cfg)
         return f"Marked reviewed: {slug}"
 
     def _call_memory_review(self, args: dict[str, Any]) -> str:
-        if not self._cfg.db_path.exists():
-            return "No index — run kg reindex first"
         threshold = float(args.get("threshold", self._cfg.review.budget_threshold))
         limit = int(args.get("limit", 20))
-        conn = sqlite3.connect(str(self._cfg.db_path))
+        from kg.db import get_conn as _get_db_conn
+        conn = _get_db_conn(self._cfg)
         rows = conn.execute(
             """SELECT slug, title, bullet_count, token_budget
                FROM nodes
@@ -211,7 +210,7 @@ class KGServer:
             bullet_type=args.get("bullet_type", "fact"),
             status=args.get("status"),
         )
-        index_node(args["node_slug"], nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
+        index_node(args["node_slug"], nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path, cfg=self._cfg)
         return bullet.id
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
