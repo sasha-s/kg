@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from kg.config import KGConfig
 
-_CROSSREF_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
+_CROSSREF_RE = re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
 _INTERNAL_PREFIX = ("_",)
 
 
@@ -103,7 +103,7 @@ def build_context(
                 fp = fingerprint_transcript(tp)
                 # Extract [slug] cross-refs from transcript for score boosting
                 import re as _re
-                for _slug in _re.findall(r"\[([a-z_][a-z0-9_]+-[a-z][a-z0-9_-]*[a-z0-9])\]", fp.text):
+                for _slug in _re.findall(r"\[\[([a-z_][a-z0-9_]+-[a-z][a-z0-9_-]*[a-z0-9])\]\]", fp.text):
                     session_ref_slugs.add(_slug)
 
     raw = search_fts(query, db_path, limit=limit * 3, cfg=cfg)

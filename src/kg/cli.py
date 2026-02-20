@@ -42,6 +42,7 @@ from kg.install import (
     mcp_health,
 )
 from kg.mcp import run_server
+from kg.models import FileBullet, FileNode
 from kg.reader import FileStore
 from kg.watcher import run_from_config
 
@@ -55,6 +56,47 @@ def _load_cfg() -> KGConfig:
         return load_config()
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _node_from_db(slug: str, cfg: KGConfig) -> FileNode | None:
+    """Load a node and its bullets from the SQLite index (fallback for doc nodes)."""
+    if not cfg.db_path.exists():
+        return None
+    conn = _get_db_conn(cfg)
+    try:
+        row = conn.execute(
+            "SELECT slug, title, type, created_at, token_budget FROM nodes WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+        if row is None:
+            return None
+        node_slug, title, ntype, created_at, token_budget = row
+        bullet_rows = conn.execute(
+            "SELECT id, type, text, created_at, status, useful, harmful FROM bullets WHERE node_slug = ? ORDER BY rowid",
+            (slug,),
+        ).fetchall()
+    finally:
+        conn.close()
+    bullets = [
+        FileBullet(
+            id=bid,
+            type=btype or "chunk",
+            text=text or "",
+            created_at=bat or "",
+            status=bstatus,
+            useful=useful or 0,
+            harmful=harmful or 0,
+        )
+        for bid, btype, text, bat, bstatus, useful, harmful in bullet_rows
+    ]
+    return FileNode(
+        slug=node_slug,
+        title=title or node_slug,
+        type=ntype or "doc",
+        created_at=created_at or "",
+        bullets=bullets,
+        token_budget=float(token_budget or 0.0),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,10 +295,17 @@ BULLET_TYPES = ["fact", "gotcha", "decision", "task", "note", "success", "failur
 @click.option("--status", default=None, type=click.Choice(["pending", "completed", "archived"]))
 def add(slug: str, text: str, bullet_type: str, status: str | None) -> None:
     """Add a bullet to a node (auto-creates node if missing)."""
+    import re as _re
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     bullet = store.add_bullet(slug, text=text, bullet_type=bullet_type, status=status)
     click.echo(bullet.id)
+    # Auto-create stub nodes for any [slug] cross-references that don't exist yet
+    _crossref_re = _re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
+    for ref in _crossref_re.findall(text):
+        if ref != slug and not store.exists(ref) and not _node_from_db(ref, cfg):
+            store.create(ref, ref)
+            click.echo(f"  created stub [{ref}]", err=True)
 
 
 def _find_bullet_slug(bullet_id: str, cfg: KGConfig) -> str | None:
@@ -488,6 +537,8 @@ def show(
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     node = store.get(slug)
+    if node is None:
+        node = _node_from_db(slug, cfg)
     if node is None:
         raise click.ClickException(f"Node not found: {slug}")
 
@@ -1452,6 +1503,74 @@ def web(host: str | None, port: int | None) -> None:
     from kg.web import serve as _web_serve
 
     _web_serve(cfg, host=host or cfg.server.web_host, port=port or cfg.server.web_port)
+
+
+# ---------------------------------------------------------------------------
+# kg migrate-refs
+# ---------------------------------------------------------------------------
+
+
+@cli.command("migrate-refs")
+@click.option("--dry-run", is_flag=True, help="Show what would change without writing")
+def migrate_refs(dry_run: bool) -> None:
+    """Migrate [slug] cross-references to [[slug]] in all node.jsonl files.
+
+    Rewrites bullet text in-place then reindexes so backlinks are rebuilt.
+    Safe to run multiple times — already-converted [[slug]] refs are not double-wrapped.
+    """
+    import json as _json
+    import re as _re
+
+    cfg = _load_cfg()
+    if not cfg.nodes_dir.exists():
+        raise click.ClickException("No nodes directory found — run `kg init` first")
+
+    # Match [slug] but not [[slug]] (negative lookbehind/lookahead)
+    _old_ref = _re.compile(r"(?<!\[)\[([a-z0-9][a-z0-9\-]*[a-z0-9])\](?!\])")
+
+    total_files = 0
+    total_bullets = 0
+
+    for path in sorted(cfg.nodes_dir.glob("*/node.jsonl")):
+        lines = path.read_text().splitlines()
+        new_lines: list[str] = []
+        changed = 0
+        for line in lines:
+            raw = line.strip()
+            if not raw:
+                new_lines.append(line)
+                continue
+            try:
+                obj = _json.loads(raw)
+            except _json.JSONDecodeError:
+                new_lines.append(line)
+                continue
+            if "text" in obj and isinstance(obj["text"], str):
+                new_text = _old_ref.sub(r"[[\1]]", obj["text"])
+                if new_text != obj["text"]:
+                    obj["text"] = new_text
+                    changed += 1
+                    total_bullets += 1
+                    line = _json.dumps(obj, ensure_ascii=False)
+            new_lines.append(line)
+
+        if changed:
+            total_files += 1
+            if dry_run:
+                click.echo(f"  would update {changed} bullet(s) in {path.parent.name}")
+            else:
+                path.write_text("\n".join(new_lines) + "\n")
+
+    if dry_run:
+        click.echo(f"dry-run: {total_bullets} bullets in {total_files} files would be updated")
+        return
+
+    click.echo(f"Updated {total_bullets} bullets across {total_files} files")
+
+    if total_bullets > 0:
+        click.echo("Reindexing to rebuild backlinks...")
+        n = rebuild_all(cfg.nodes_dir, cfg.db_path)
+        click.echo(f"Indexed {n} nodes")
 
 
 # ---------------------------------------------------------------------------

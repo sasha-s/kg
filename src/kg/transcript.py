@@ -65,7 +65,7 @@ def fingerprint_transcript(transcript_path: str) -> TranscriptFingerprint:
     # Extract IDs — try rg first (fast), fall back to regex
     # Slug pattern: min 2 chars before hyphen, min 2 chars after.
     # Filters Rich markup [bold], regex classes [a-f0-9], [a-z0-9-], etc.
-    _slug_re = r"\[([a-z_][a-z0-9_]+-[a-z][a-z0-9_-]*[a-z0-9])\]"
+    _slug_re = r"\[\[([a-z_][a-z0-9_]+-[a-z][a-z0-9_-]*[a-z0-9])\]\]"
     ids: set[str] = set()
     try:
         result = subprocess.run(

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from kg.models import FileNode
 
 # Cross-reference pattern: [slug] in bullet text
-_CROSSREF_RE = re.compile(r"\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]")
+_CROSSREF_RE = re.compile(r"\[\[([a-z0-9][a-z0-9\-]*[a-z0-9])\]\]")
 
 
 def _get_conn(db_path: Path) -> sqlite3.Connection:

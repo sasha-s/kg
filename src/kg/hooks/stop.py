@@ -42,7 +42,7 @@ You are a knowledge extractor for kg (knowledge graph). Extract durable knowledg
 and maintain the graph using `kg` CLI commands.
 
 The kg graph is a Zettelkasten — atomic concept nodes (JSONL files) linked by \
-cross-references like [slug]. Your job: process fleeting notes from the session \
+cross-references like [[slug]]. Your job: process fleeting notes from the session \
 and promote durable knowledge into this network.
 
 Available commands: kg add, kg show, kg nodes, kg search, kg context, kg review, \
@@ -129,7 +129,7 @@ Bullet types:
 - `failure`  — Approaches that failed and why
 - `note`     — Observations, context
 
-Cross-link aggressively: `kg add asyncpg-patterns "LIKE is case-sensitive — use ILIKE [postgres-gotchas]"`
+Cross-link aggressively: `kg add asyncpg-patterns "LIKE is case-sensitive — use ILIKE [[postgres-gotchas]]"`
 
 **NEVER add bullets about:**
 - The extraction process itself ("verified", "completed", "all steps done")
@@ -172,7 +172,8 @@ Rules:
 - [ ] Checked _fleeting-<short_id> for captures; filled any gaps
 - [ ] Searched graph for every distinct topic touched
 - [ ] Voted on returned bullets (`kg vote useful/harmful <ids>`) where you have signal
-- [ ] Promoted worthy bullets to concept nodes (with [cross-refs]); deleted promoted/discarded from fleeting
+- [ ] Promoted worthy bullets to concept nodes; deleted promoted/discarded from fleeting
+- [ ] **Cross-linked**: bullets that mention another concept include `[[slug]]` — see [[graph-hygiene]]
 - [ ] Called `kg review <slug>` on any over-budget nodes (⚠)
 - [ ] Added session anchor (intent + outcome required, kept in fleeting)
 """
