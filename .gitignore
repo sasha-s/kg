@@ -8,7 +8,8 @@ build/
 .env
 
 # kg runtime artifacts
-.kg/index/
+.kg/
+kg.toml
 *.db
 *.db-wal
 *.db-shm
