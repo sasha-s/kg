@@ -22,6 +22,8 @@ def _get_encoder(model: str) -> object | None:
     if _encoder is not None and _encoder_model == model:
         return _encoder
     with contextlib.suppress(Exception):
+        from kg.embedder import _suppress_ort_warnings
+        _suppress_ort_warnings()
         from fastembed import TextCrossEncoder  # type: ignore[import-not-found]
         _encoder = TextCrossEncoder(model_name=model)
         _encoder_model = model
