@@ -38,11 +38,14 @@ class ContextNode:
     review_hint: str | None = None
 
     def format_compact(self) -> str:
-        """Single-line format: [slug] Title: bullet ←id | bullet ←id"""
+        """Single-line format: [slug] Title: bullet ←id | bullet ←id  ⚠"""
         bullet_parts = [f"{text} ←{bid}" for bid, text in self.bullets]
         body = " | ".join(bullet_parts)
         prefix = f"[{self.slug}] {self.title}"
-        return f"{prefix}: {body}" if body else prefix
+        line = f"{prefix}: {body}" if body else prefix
+        if self.review_hint:
+            line += "  ⚠"
+        return line
 
 
 @dataclass
