@@ -226,10 +226,18 @@ def _show_backlinks(slug: str, cfg: KGConfig, limit: int = 10) -> None:
 
 @cli.command()
 @click.argument("slug")
+@click.option("--limit", "-l", default=10, show_default=True, help="Max bullets to show (0 = all)")
+@click.option("--offset", "-o", default=0, show_default=True, help="Skip first N bullets (for pagination)")
 @click.option("--max-width", "-w", default=0, help="Truncate bullet text to N chars (0 = unlimited)")
 @click.option("--no-backlinks", is_flag=True, help="Skip backlinks section")
-def show(slug: str, max_width: int, no_backlinks: bool) -> None:
-    """Show all bullets for a node."""
+def show(slug: str, limit: int, offset: int, max_width: int, no_backlinks: bool) -> None:
+    """Show bullets for a node.
+
+    \b
+    kg show <slug>           # first 10 bullets
+    kg show <slug> -l 0      # all bullets
+    kg show <slug> -l 5 -o 5 # bullets 6-10
+    """
     cfg = _load_cfg()
     store = FileStore(cfg.nodes_dir)
     node = store.get(slug)
@@ -237,22 +245,30 @@ def show(slug: str, max_width: int, no_backlinks: bool) -> None:
         raise click.ClickException(f"Node not found: {slug}")
 
     live = node.live_bullets
+    total = len(live)
+    page = live[offset:] if limit == 0 else live[offset:offset + limit]
+    shown = len(page)
+
     budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
+    created = f"  created {node.created_at[:10]}" if node.created_at else ""
+    page_info = f"  [{offset + 1}-{offset + shown} of {total}]" if (offset or (limit and shown < total)) else f"  [{total} total]" if limit == 0 else ""
     threshold = cfg.review.budget_threshold
-    hint = node.review_hint(threshold=threshold, bullet_count=len(live))
-    click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}")
+    hint = node.review_hint(threshold=threshold, bullet_count=total)
+    click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{total} bullets{budget_info}{created}{page_info}")
     if hint:
         bar = "─" * 60
         click.echo(bar)
         see_ref = "" if slug == "node-review" else "  see [node-review]"
-        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {len(live)} bullets{see_ref}")
+        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {total} bullets{see_ref}")
         click.echo(f"  Run `kg review {slug}` when done.")
         click.echo(bar)
-    for b in live:
+    for b in page:
         prefix = f"({b.type}) " if b.type != "fact" else ""
         vote_info = f"  [+{b.useful}/-{b.harmful}]" if b.useful or b.harmful else ""
         text = (b.text[:max_width] + "…") if max_width and len(b.text) > max_width else b.text
         click.echo(f"  {prefix}{text}  ←{b.id}{vote_info}")
+    if limit and shown < total and not offset:
+        click.echo(f"  … {total - shown} more  (use -l 0 or -o {shown} to see more)")
     if not no_backlinks:
         _show_backlinks(slug, cfg)
 
