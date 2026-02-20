@@ -200,7 +200,7 @@ def collect_files(source: SourceConfig) -> list[Path]:
                 if not p.is_file():
                     continue
                 rel = str(p.relative_to(source_path))
-                if any(fnmatch(rel, pat.lstrip("*/")) or fnmatch(p.name, pat.lstrip("*/"))
+                if any(fnmatch(rel, pat) or fnmatch(p.name, pat.split("/")[-1])
                        for pat in include_pats):
                     if not any(fnmatch(rel, pat.lstrip("/")) for pat in exclude_pats):
                         result.append(p)
