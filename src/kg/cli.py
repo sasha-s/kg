@@ -303,6 +303,32 @@ def vote_harmful(bullet_ids: tuple[str, ...]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# kg create
+# ---------------------------------------------------------------------------
+
+
+@cli.command()
+@click.argument("slug")
+@click.argument("title")
+@click.option("--type", "node_type", default="concept", show_default=True)
+def create(slug: str, title: str, node_type: str) -> None:
+    """Create a new node with a given title.
+
+    \b
+    kg create notes-2026-02-20 "Notes 2026-02-20"
+    kg create my-topic "My Topic" --type concept
+
+    Exits 0 if the node already exists (idempotent).
+    """
+    cfg = _load_cfg()
+    store = FileStore(cfg.nodes_dir)
+    if store.exists(slug):
+        click.echo(f"[{slug}] already exists")
+        return
+    store.create(slug, title, node_type=node_type)
+    click.echo(f"Created [{slug}] {title}")
+
+
 # kg show
 # ---------------------------------------------------------------------------
 
