@@ -195,6 +195,14 @@ def reindex() -> None:
         raise SystemExit(1) from exc
 
     click.echo(f"Indexed {n} nodes")
+
+    if cfg.sources:
+        click.echo(f"Indexing {len(cfg.sources)} file source(s)...")
+        for src in cfg.sources:
+            stats = index_source(src, db_path=cfg.db_path)
+            parts = [f"{v} {k}" for k, v in stats.items() if v]
+            click.echo(f"  [{src.name or src.path}] {', '.join(parts) or 'no changes'}")
+
     _calibrate_after_reindex(cfg)
 
     if was_running:
@@ -240,6 +248,12 @@ def upgrade(no_reindex: bool) -> None:
                 stop_watcher(cfg)
             n = rebuild_all(cfg.nodes_dir, cfg.db_path, verbose=True, cfg=cfg)
             click.echo(f"Reindexed {n} nodes")
+            if cfg.sources:
+                click.echo(f"Indexing {len(cfg.sources)} file source(s)...")
+                for src in cfg.sources:
+                    stats = index_source(src, db_path=cfg.db_path)
+                    parts = [f"{v} {k}" for k, v in stats.items() if v]
+                    click.echo(f"  [{src.name or src.path}] {', '.join(parts) or 'no changes'}")
             _calibrate_after_reindex(cfg)
             if was_running:
                 click.echo("Restarting watcher…")
