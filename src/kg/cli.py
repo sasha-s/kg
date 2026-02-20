@@ -662,11 +662,13 @@ class _NodesGroup(click.Group):
 @click.option("--limit", "-l", default=20, show_default=True, help="Max nodes to list")
 @click.option("--recent", is_flag=True, help="Sort by most recently added bullet")
 @click.option("--bullets", is_flag=True, help="Sort by bullet count descending")
-def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool) -> None:
+@click.option("--docs", is_flag=True, help="Show indexed source-file nodes (type=doc) instead")
+def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool, docs: bool) -> None:
     """List nodes in the knowledge graph.
 
     \b
-    kg nodes                # all nodes, alphabetical
+    kg nodes                # all nodes, alphabetical (hides _doc-* source nodes)
+    kg nodes --docs         # show indexed source-file nodes
     kg nodes '*search*'     # glob filter on slug
     kg nodes --bullets      # sorted by bullet count
     kg nodes --recent -l 5  # 5 most recently updated
@@ -686,30 +688,36 @@ def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool) -> None:
 
     conn = _get_db_conn(cfg)
 
+    # docs=True shows source-file nodes; default hides them
+    doc_eq = "=" if docs else "!="
+
     if recent:
-        sql = """
+        sql = f"""
             SELECT n.slug, n.title, n.type, n.bullet_count,
                    MAX(b.created_at) AS last_bullet
             FROM nodes n
             LEFT JOIN bullets b ON b.node_slug = n.slug
+            WHERE n.type {doc_eq} 'doc'
             GROUP BY n.slug
             ORDER BY last_bullet DESC NULLS LAST
             LIMIT ?
-        """
+        """  # noqa: S608
     elif bullets:
-        sql = """
+        sql = f"""
             SELECT slug, title, type, bullet_count, created_at AS last_bullet
             FROM nodes
+            WHERE type {doc_eq} 'doc'
             ORDER BY bullet_count DESC
             LIMIT ?
-        """
+        """  # noqa: S608
     else:
-        sql = """
+        sql = f"""
             SELECT slug, title, type, bullet_count, created_at AS last_bullet
             FROM nodes
+            WHERE type {doc_eq} 'doc'
             ORDER BY slug
             LIMIT ?
-        """
+        """  # noqa: S608
 
     rows = conn.execute(sql, (limit * 4 if pattern else limit,)).fetchall()
     conn.close()
