@@ -56,8 +56,10 @@ class FileBullet:
         return {"id": self.id, "deleted": True}
 
 
-# Threshold: flag for review above this many accumulated chars served
-_REVIEW_BUDGET_THRESHOLD = 3000.0
+# Threshold: flag for review when credits-per-bullet exceeds this value.
+# credits-per-bullet ≈ serve_count * avg_chars_per_bullet (~200)
+# so threshold=500 ≈ flagged after ~2-3 context appearances per bullet.
+_REVIEW_BUDGET_THRESHOLD = 500.0
 
 
 @dataclass
@@ -79,18 +81,21 @@ class FileNode:
         """Bullets that have not been tombstoned."""
         return [b for b in self.bullets if not b.deleted]
 
-    def needs_review(self, threshold: float = _REVIEW_BUDGET_THRESHOLD) -> bool:
-        """True when token_budget exceeds threshold."""
-        return self.token_budget >= threshold
+    def credits_per_bullet(self, bullet_count: int | None = None) -> float:
+        """Return token_budget normalised by bullet count."""
+        count = bullet_count if bullet_count is not None else len(self.live_bullets)
+        return self.token_budget / max(1, count)
+
+    def needs_review(self, threshold: float = _REVIEW_BUDGET_THRESHOLD, bullet_count: int | None = None) -> bool:
+        """True when credits-per-bullet exceeds threshold."""
+        return self.credits_per_bullet(bullet_count) >= threshold
 
     def review_hint(self, threshold: float = _REVIEW_BUDGET_THRESHOLD, bullet_count: int | None = None) -> str | None:
-        """Return inline TLC hint string, or None if not needed."""
-        if not self.needs_review(threshold):
+        """Return inline hint string, or None if not needed."""
+        if not self.needs_review(threshold, bullet_count):
             return None
-        parts = [f"{int(self.token_budget)} credits"]
-        if bullet_count is not None:
-            parts.append(f"{bullet_count} bullets")
-        return f"⚠ needs review ({', '.join(parts)})"
+        cpb = int(self.credits_per_bullet(bullet_count))
+        return f"⚠ needs review ({int(self.token_budget)} credits, {cpb}/bullet)"
 
     def header_dict(self) -> dict[str, Any]:
         return {

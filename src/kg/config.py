@@ -100,7 +100,7 @@ class SourceConfig:
 
 @dataclass
 class ReviewConfig:
-    budget_threshold: float = 3000.0   # chars served before flagging a node for review
+    budget_threshold: float = 500.0   # credits-per-bullet before flagging for review
 
 
 @dataclass
@@ -235,7 +235,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         index_dir=root_path / index_rel,
         sources=sources,
         review=ReviewConfig(
-            budget_threshold=float(rev_section.get("budget_threshold", 3000.0)),
+            budget_threshold=float(rev_section.get("budget_threshold", 500.0)),
         ),
         embeddings=EmbeddingsConfig(
             model=emb_section.get("model", "gemini:gemini-embedding-001"),
@@ -291,7 +291,7 @@ name = "{project_name}"
 # max_size_kb = 512
 
 # [review]
-# budget_threshold = 3000   # chars served before flagging a node for review (default: 3000)
+# budget_threshold = 500   # credits-per-bullet before flagging (default: 500, ~2-3 serves)
 
 # [embeddings]
 # model = "gemini:gemini-embedding-001"

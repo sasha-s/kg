@@ -281,7 +281,8 @@ def show(slug: str, query: str | None, limit: int, offset: int, max_width: int, 
         bar = "─" * 60
         click.echo(bar)
         see_ref = "" if slug == "node-review" else "  see [node-review]"
-        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {total} bullets{see_ref}")
+        cpb = int(node.credits_per_bullet(total))
+        click.echo(f"⚠ NEEDS REVIEW: {int(node.token_budget)} credits, {cpb}/bullet{see_ref}")
         click.echo(f"  Run `kg review {slug}` when done.")
         click.echo(bar)
     for b in page:
@@ -331,18 +332,22 @@ def review(slug: str | None, limit: int, threshold: float | None) -> None:
         return
     store = FileStore(cfg.nodes_dir)
     candidates = sorted(
-        (n for n in store.iter_nodes() if not n.slug.startswith("_") and n.token_budget >= effective_threshold),
-        key=lambda n: n.token_budget,
+        (
+            n for n in store.iter_nodes()
+            if not n.slug.startswith("_") and n.needs_review(effective_threshold, len(n.live_bullets))
+        ),
+        key=lambda n: n.credits_per_bullet(len(n.live_bullets)),
         reverse=True,
     )[:limit]
     if not candidates:
-        click.echo(f"No nodes above {int(effective_threshold)} credits — graph looks healthy.")
+        click.echo(f"No nodes above {int(effective_threshold)} credits/bullet — graph looks healthy.")
         return
-    click.echo(f"{'Credits':>8}  {'Bullets':>7}  Node")
-    click.echo("-" * 50)
+    click.echo(f"{'Cr/bullet':>9}  {'Credits':>8}  {'Bullets':>7}  Node")
+    click.echo("-" * 60)
     for n in candidates:
+        live = len(n.live_bullets)
         reviewed = f"  last reviewed {n.last_reviewed[:10]}" if n.last_reviewed else ""
-        click.echo(f"{int(n.token_budget):>8}  {len(n.live_bullets):>7}  [{n.slug}] {n.title}{reviewed}")
+        click.echo(f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  [{n.slug}] {n.title}{reviewed}")
 
 
 # ---------------------------------------------------------------------------
@@ -628,18 +633,16 @@ def status() -> None:
 
     click.echo(f"Project   : {cfg.name}  ({cfg.root})")
 
-    # Node + bullet stats
-    if cfg.use_turso or cfg.db_path.exists():
-        conn = _get_db_conn(cfg)
-        row = conn.execute(
-            "SELECT COUNT(*), SUM(bullet_count) FROM nodes WHERE type NOT GLOB '_*'"
-        ).fetchone()
-        n_nodes, n_bullets = (row[0] or 0), (row[1] or 0)
-        review_count = conn.execute(
-            "SELECT COUNT(*) FROM nodes WHERE token_budget >= ? AND type NOT GLOB '_*'",
-            (cfg.review.budget_threshold,),
-        ).fetchone()[0]
-        conn.close()
+    # Node + bullet stats (review count from files — always current)
+    if cfg.nodes_dir.exists():
+        _store = FileStore(cfg.nodes_dir)
+        _all = [n for n in _store.iter_nodes() if not n.slug.startswith("_")]
+        n_nodes = len(_all)
+        n_bullets = sum(len(n.live_bullets) for n in _all)
+        review_count = sum(
+            1 for n in _all
+            if n.needs_review(cfg.review.budget_threshold, len(n.live_bullets))
+        )
         review_hint = f"  ⚠ {review_count} need review" if review_count else ""
         click.echo(f"Nodes     : {n_nodes} nodes, {n_bullets} bullets{review_hint}")
         if cfg.use_turso:

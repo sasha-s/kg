@@ -93,7 +93,7 @@ kg context "query" -s SESSION_ID  # filter already-seen bullets for this session
 
 ## Review & Budget
 
-Each node accumulates a `token_budget` counter: every time `kg context` / `memory_context` serves a node, the number of chars in its output is added to the budget. When budget ≥ `budget_threshold` (default 3000), `kg show` and context output flag the node with ⚠.
+Each node accumulates a `token_budget` counter: every time `kg context` / `memory_context` serves a node, the chars in its output are added to the budget. The review signal is **credits per bullet** (`token_budget / bullet_count`). When this exceeds `budget_threshold` (default 500 ≈ 2–3 serves), `kg show` and context output flag the node with ⚠. Normalising by bullet count means a 1-bullet node and a 20-bullet node are held to the same standard.
 
 ```bash
 kg review              # list nodes ordered by budget (reads files, never stale)
@@ -102,8 +102,7 @@ kg review <slug>       # mark as reviewed — clears budget to 0
 
 **Budget ideas / possible future work:**
 
-- *Normalize by node size* — a 20-bullet node at 3000 credits is less surprising than a 3-bullet node at 3000. Could use `credits / bullet_count` as the review signal instead of raw credits.
-- *Serve-count threshold* — track number of times a node was served rather than chars, so the threshold is model-independent.
+- *Serve-count threshold* — track number of times a node was served rather than chars, so the threshold is model-independent (currently chars/bullet, where 1 serve ≈ 200 chars/bullet).
 - *Graph propagation* — when node A is served and it references [node-B] in its bullets, deposit 50% of A's charge into B's budget. Each hop halves the deposit (bounded total). Currently no propagation: only directly-served nodes accumulate budget.
 
 ## Configuration
@@ -126,7 +125,7 @@ reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
 auto_calibrate_threshold = 0.05   # recalibrate when 5% of bullets change
 
 [review]
-budget_threshold = 3000   # chars served before flagging for review
+budget_threshold = 500   # credits-per-bullet before flagging (≈ 2-3 serves)
 
 [server]
 port = 7343

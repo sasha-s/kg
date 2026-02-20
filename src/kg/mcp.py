@@ -188,15 +188,19 @@ class KGServer:
         # Read from files — SQLite token_budget can be stale between reindexes
         store = FileStore(self._cfg.nodes_dir)
         candidates = sorted(
-            (n for n in store.iter_nodes() if not n.slug.startswith("_") and n.token_budget >= threshold),
-            key=lambda n: n.token_budget,
+            (
+                n for n in store.iter_nodes()
+                if not n.slug.startswith("_") and n.needs_review(threshold, len(n.live_bullets))
+            ),
+            key=lambda n: n.credits_per_bullet(len(n.live_bullets)),
             reverse=True,
         )[:limit]
         if not candidates:
             return "No nodes need review — graph looks healthy."
-        lines = [f"{'Credits':>8}  {'Bullets':>7}  Node", "-" * 50]
+        lines = [f"{'Cr/bullet':>9}  {'Credits':>8}  {'Bullets':>7}  Node", "-" * 60]
         for n in candidates:
-            lines.append(f"{int(n.token_budget):>8}  {len(n.live_bullets):>7}  [{n.slug}] {n.title}")
+            live = len(n.live_bullets)
+            lines.append(f"{int(n.credits_per_bullet(live)):>9}  {int(n.token_budget):>8}  {live:>7}  [{n.slug}] {n.title}")
         return "\n".join(lines)
 
     def _call_memory_add_bullet(self, args: dict[str, Any]) -> str:
