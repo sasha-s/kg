@@ -1,0 +1,9 @@
+{"v": 1, "slug": "_fleeting-17023ba5-807", "title": "_fleeting-17023ba5-807", "type": "concept", "created_at": "2026-02-20T10:49:50.859977+00:00"}
+{"id": "b-c00a2ba3", "type": "note", "text": "Session anchor: implemented [[slug]] double-bracket cross-ref syntax, doc node SQLite fallback, auto-stub creation for missing refs, kg migrate-refs command, kg reindex/upgrade doc indexing fix, kg status version display", "created_at": "2026-02-20T10:49:50.860171+00:00"}
+{"id": "b-1826ce20", "type": "note", "text": "Promoted to [[kg-architecture]]: [[slug]] syntax change, doc node SQLite fallback (_node_from_db), auto-stub creation, kg migrate-refs, reindex/upgrade doc fix, kg status version, upgrade reindex timing gotcha.", "created_at": "2026-02-20T10:51:19.730933+00:00"}
+{"id": "b-74c3163b", "type": "note", "text": "Updated [[graph-hygiene]], [[how-to-use-kg]], [[graph-first-workflow]], [[bullet-quality]] bullets from [slug] to [[slug]] cross-ref syntax.", "created_at": "2026-02-20T10:51:23.033949+00:00"}
+{"id": "b-7627391a", "type": "note", "text": "intent: fix kg cross-referencing (switch to [[slug]], auto-stubs, backlinks) + fix doc node indexing/search quality", "created_at": "2026-02-20T10:57:31.650663+00:00"}
+{"id": "b-79bba46e", "type": "note", "text": "outcome: [[slug]] syntax throughout, auto-stub on kg add, kg migrate-refs, _node_from_db fallback, separate fts/fts_doc calibration, upgrade uses new binary, search page doc toggle \u2014 released v0.3.24\u20130.3.27", "created_at": "2026-02-20T10:57:35.712934+00:00"}
+{"id": "b-c00a2ba3", "deleted": true}
+{"id": "b-1826ce20", "deleted": true}
+{"id": "b-74c3163b", "deleted": true}

@@ -310,6 +310,44 @@ def _render_index(cfg: KGConfig) -> str:
 
 # ─── Doc node (source file) renderer ─────────────────────────────────────────
 
+def _github_link(source_path: str, rel_path: str) -> str | None:
+    """Return GitHub blob URL (with file commit hash) for rel_path in source_path, or None."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git", "-C", source_path, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        if r.returncode != 0:
+            return None
+        remote_url = r.stdout.strip()
+
+        # Normalise to https://github.com/user/repo
+        m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", remote_url)
+        if not m:
+            return None
+        base = f"https://github.com/{m.group(1)}"
+
+        # Commit hash of the last change to this file (fall back to HEAD)
+        log = subprocess.run(
+            ["git", "-C", source_path, "log", "-1", "--format=%H", "--", rel_path],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        commit = log.stdout.strip() if log.returncode == 0 else ""
+        if not commit:
+            head = subprocess.run(
+                ["git", "-C", source_path, "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
+            commit = head.stdout.strip() if head.returncode == 0 else ""
+        if not commit:
+            return None
+
+        return f"{base}/blob/{commit}/{rel_path}"
+    except Exception:
+        return None
+
+
 def _get_doc_node(cfg: KGConfig, slug: str) -> dict | None:
     """Fetch a _doc-* source file node from SQLite. Returns None if not found."""
     import contextlib
@@ -324,17 +362,34 @@ def _get_doc_node(cfg: KGConfig, slug: str) -> dict | None:
             conn.close()
             return None
         title, bullet_count, created_at = row
+        # Also fetch source metadata to build a GitHub link
+        fs_row = conn.execute(
+            "SELECT rel_path, source_name FROM file_sources WHERE slug = ?",
+            (slug,),
+        ).fetchone()
         chunks = conn.execute(
             "SELECT id, text FROM bullets WHERE node_slug = ? ORDER BY id",
             (slug,),
         ).fetchall()
         conn.close()
+
+        github_url: str | None = None
+        if fs_row is not None:
+            rel_path, source_name = fs_row
+            # Find matching SourceConfig by name (or first source if unnamed)
+            for src in cfg.sources:
+                if src.name == source_name or (not source_name and not src.name):
+                    with contextlib.suppress(Exception):
+                        github_url = _github_link(str(src.abs_path), rel_path)
+                    break
+
         return {
             "slug": slug,
             "title": title or slug,
             "bullet_count": bullet_count,
             "created_at": created_at,
             "chunks": [(cid, text) for cid, text in chunks],
+            "github_url": github_url,
         }
     return None
 
@@ -374,14 +429,23 @@ def _render_doc_page(cfg: KGConfig, doc: dict, show_chunks: bool) -> str:
         if chunk_items else ""
     )
 
+    github_url = doc.get("github_url")
+    gh_link = (
+        f' <a href="{_html.escape(github_url)}" target="_blank" rel="noopener noreferrer"'
+        f' style="font-size:0.8rem;opacity:0.7;text-decoration:none" title="View on GitHub">GitHub ↗</a>'
+        if github_url else ""
+    )
     lbl = f"Show {n} chunk{'s' if n != 1 else ''}"
     body = (
         f'<div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px">'
         f'<h1><code style="font-size:1.1rem;background:none;padding:0">{_html.escape(title)}</code></h1>'
+        f'<div style="display:flex;align-items:center;gap:12px">'
+        f'{gh_link}'
         f'<label class="chunks-toggle">'
         f'<input type="checkbox" id="toggle-chunks" {"checked" if show_chunks else ""}>'
         f' <span id="toggle-label">{lbl if not show_chunks else lbl.replace("Show","Hide")}</span>'
         f'</label>'
+        f'</div>'
         f'</div>'
         f'<p class="meta">{_badge("doc")} [{_html.escape(slug)}] · {n} chunk{"s" if n != 1 else ""} · {lang}{created}</p>'
         + chunks_section
