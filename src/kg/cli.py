@@ -142,13 +142,59 @@ def show(ctx: click.Context, slug: str) -> None:
     if node is None:
         raise click.ClickException(f"Node not found: {slug}")
 
-    click.echo(f"# {node.title}  [{node.slug}]  type={node.type}")
-    for b in node.live_bullets:
+    live = node.live_bullets
+    budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
+    hint = node.review_hint(bullet_count=len(live))
+    click.echo(f"# {node.title}  [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}")
+    if hint:
+        click.echo(f"  {hint}")
+    for b in live:
         prefix = f"({b.type}) " if b.type != "fact" else ""
         vote_info = ""
         if b.useful or b.harmful:
             vote_info = f"  [+{b.useful}/-{b.harmful}]"
         click.echo(f"  {prefix}{b.text}  ←{b.id}{vote_info}")
+
+    # Explicit examination clears the budget
+    if node.token_budget > 0:
+        store.clear_node_budget(slug)
+        from kg.indexer import index_node
+        index_node(slug, nodes_dir=cfg.nodes_dir, db_path=cfg.db_path)
+
+
+# ---------------------------------------------------------------------------
+# kg review
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option("--limit", "-n", default=20, show_default=True)
+@click.option("--threshold", default=500.0, show_default=True, help="Min token_budget to list")
+@click.pass_context
+def review(ctx: click.Context, limit: int, threshold: float) -> None:
+    """List nodes that need review, ordered by accumulated token budget."""
+    import sqlite3
+    cfg = _load_cfg(ctx)
+    if not cfg.db_path.exists():
+        click.echo("No index found — run `kg reindex` first")
+        return
+    conn = sqlite3.connect(str(cfg.db_path))
+    rows = conn.execute(
+        """SELECT slug, title, bullet_count, token_budget, last_reviewed
+           FROM nodes
+           WHERE token_budget >= ? AND type NOT LIKE '_%'
+           ORDER BY token_budget DESC
+           LIMIT ?""",
+        (threshold, limit),
+    ).fetchall()
+    conn.close()
+    if not rows:
+        click.echo(f"No nodes above {int(threshold)} credits — graph looks healthy.")
+        return
+    click.echo(f"{'Credits':>8}  {'Bullets':>7}  Node")
+    click.echo("-" * 50)
+    for slug, title, bullet_count, budget, last_reviewed in rows:
+        reviewed = f"  reviewed {last_reviewed[:10]}" if last_reviewed else ""
+        click.echo(f"{int(budget):>8}  {bullet_count or 0:>7}  [{slug}] {title}{reviewed}")
 
 
 # ---------------------------------------------------------------------------

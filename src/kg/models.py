@@ -66,10 +66,28 @@ class FileNode:
     created_at: str = ""
     bullets: list[FileBullet] = field(default_factory=list)
 
+    # Loaded from meta.jsonl node-level entry {"_node": slug, ...}
+    token_budget: float = 0.0       # cumulative chars served in context
+    last_reviewed: str = ""         # ISO timestamp of last explicit review
+
     @property
     def live_bullets(self) -> list[FileBullet]:
         """Bullets that have not been tombstoned."""
         return [b for b in self.bullets if not b.deleted]
+
+    @property
+    def needs_review(self) -> bool:
+        """True when token_budget exceeds threshold."""
+        return self.token_budget >= _REVIEW_BUDGET_THRESHOLD
+
+    def review_hint(self, bullet_count: int | None = None) -> str | None:
+        """Return inline TLC hint string, or None if not needed."""
+        if not self.needs_review:
+            return None
+        parts = [f"{int(self.token_budget)} credits"]
+        if bullet_count is not None:
+            parts.append(f"{bullet_count} bullets")
+        return f"⚠ needs review ({', '.join(parts)})"
 
     def header_dict(self) -> dict[str, Any]:
         return {
@@ -79,3 +97,7 @@ class FileNode:
             "type": self.type,
             "created_at": self.created_at or datetime.now(UTC).isoformat(),
         }
+
+
+# Threshold: flag for review above this many accumulated chars served
+_REVIEW_BUDGET_THRESHOLD = 500.0

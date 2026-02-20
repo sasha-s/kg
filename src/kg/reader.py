@@ -94,12 +94,13 @@ class FileStore:
         return node
 
     def _merge_meta(self, node: FileNode) -> None:
-        """Load meta.jsonl and attach vote counts to bullets."""
+        """Load meta.jsonl and attach vote counts + node-level budget to node."""
         path = self._meta_path(node.slug)
         if not path.exists():
             return
 
         votes: dict[str, dict[str, Any]] = {}
+        node_meta: dict[str, Any] = {}
         with path.open() as f:
             for line in f:
                 line = line.strip()
@@ -109,8 +110,10 @@ class FileStore:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if "id" in obj:
-                    # Last write wins (meta.jsonl is append-only, latest entry is truth)
+                if "_node" in obj:
+                    # Node-level entry — last write wins
+                    node_meta = obj
+                elif "id" in obj:
                     votes[obj["id"]] = obj
 
         for b in node.bullets:
@@ -119,6 +122,59 @@ class FileStore:
                 b.useful = int(v.get("useful", 0))
                 b.harmful = int(v.get("harmful", 0))
                 b.used = int(v.get("used", 0))
+
+        if node_meta:
+            node.token_budget = float(node_meta.get("token_budget", 0.0))
+            node.last_reviewed = node_meta.get("last_reviewed", "")
+
+    def update_node_budget(self, slug: str, delta_chars: float) -> float:
+        """Increment token_budget by delta_chars. Returns new total."""
+        path = self._meta_path(slug)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        current = self._read_node_meta(slug)
+        new_budget = float(current.get("token_budget", 0.0)) + delta_chars
+        current["token_budget"] = new_budget
+        current["_node"] = slug
+        current["updated_at"] = datetime.now(UTC).isoformat()
+
+        line = json.dumps(current) + "\n"
+        with path.open("a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(line)
+        return new_budget
+
+    def clear_node_budget(self, slug: str) -> None:
+        """Mark node as reviewed: zero out budget, record last_reviewed timestamp."""
+        path = self._meta_path(slug)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        current = self._read_node_meta(slug)
+        current["_node"] = slug
+        current["token_budget"] = 0.0
+        current["last_reviewed"] = datetime.now(UTC).isoformat()
+        current["updated_at"] = datetime.now(UTC).isoformat()
+
+        line = json.dumps(current) + "\n"
+        with path.open("a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(line)
+
+    def _read_node_meta(self, slug: str) -> dict[str, Any]:
+        """Read the most recent node-level meta entry from meta.jsonl."""
+        path = self._meta_path(slug)
+        if not path.exists():
+            return {}
+        current: dict[str, Any] = {}
+        with path.open() as f:
+            for line in f:
+                try:
+                    obj = json.loads(line.strip())
+                    if "_node" in obj:
+                        current = obj
+                except json.JSONDecodeError:
+                    continue
+        return current
 
     def exists(self, slug: str) -> bool:
         return self._node_path(slug).exists()

@@ -121,15 +121,26 @@ class KGServer:
         return "\n".join(lines)
 
     def _call_memory_show(self, args: dict[str, Any]) -> str:
+        from kg.indexer import index_node
         from kg.reader import FileStore
         store = FileStore(self._cfg.nodes_dir)
-        node = store.get(args["slug"])
+        slug = args["slug"]
+        node = store.get(slug)
         if node is None:
-            return f"Node not found: {args['slug']}"
-        lines = [f"# {node.title} [{node.slug}]  type={node.type}"]
-        for b in node.live_bullets:
-            prefix = f"({b.type})" if b.type != "fact" else ""
-            lines.append(f"- {prefix} {b.text}  ←{b.id}")
+            return f"Node not found: {slug}"
+        live = node.live_bullets
+        budget_info = f"  ↑{int(node.token_budget)} credits" if node.token_budget >= 100 else ""
+        hint = node.review_hint(bullet_count=len(live))
+        lines = [f"# {node.title} [{node.slug}]  type={node.type}  ●{len(live)} bullets{budget_info}"]
+        if hint:
+            lines.append(f"  {hint}")
+        for b in live:
+            prefix = f"({b.type}) " if b.type != "fact" else ""
+            lines.append(f"- {prefix}{b.text}  ←{b.id}")
+        # Explicit examination clears the budget
+        if node.token_budget > 0:
+            store.clear_node_budget(slug)
+            index_node(slug, nodes_dir=self._cfg.nodes_dir, db_path=self._cfg.db_path)
         return "\n".join(lines)
 
     def _call_memory_add_bullet(self, args: dict[str, Any]) -> str:

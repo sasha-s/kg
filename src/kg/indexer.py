@@ -36,7 +36,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             title TEXT,
             type TEXT,
             created_at TEXT,
-            bullet_count INTEGER DEFAULT 0
+            bullet_count INTEGER DEFAULT 0,
+            token_budget REAL DEFAULT 0,
+            last_reviewed TEXT
         );
 
         CREATE TABLE IF NOT EXISTS bullets (
@@ -115,9 +117,10 @@ def index_node(slug: str, *, nodes_dir: Path, db_path: Path) -> None:
 
         live = node.live_bullets
         conn.execute(
-            "INSERT OR REPLACE INTO nodes(slug, title, type, created_at, bullet_count) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (node.slug, node.title, node.type, node.created_at, len(live)),
+            "INSERT OR REPLACE INTO nodes(slug, title, type, created_at, bullet_count, token_budget, last_reviewed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (node.slug, node.title, node.type, node.created_at, len(live),
+             node.token_budget, node.last_reviewed or None),
         )
 
         for b in live:
