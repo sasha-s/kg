@@ -1260,6 +1260,12 @@ def status() -> None:
             f"[yellow]⚠ {emb_model} — unknown provider (expected gemini:, fastembed:)[/yellow]",
         )
 
+    # Reranker
+    if cfg.search.use_reranker:
+        table.add_row("  Reranker", f"{cfg.search.reranker_model}  [green](enabled)[/green]")
+    else:
+        table.add_row("  Reranker", "[dim]disabled[/dim]")
+
     table.add_row("MCP", mcp_health(cfg))
 
     # --- Hooks ---
@@ -1296,6 +1302,24 @@ def status() -> None:
 
     table.add_row("", "")
     if cfg.sources:
+        # Fetch per-source indexed stats from DB
+        src_stats: dict[str, dict] = {}
+        if cfg.db_path.exists():
+            with _cl.suppress(Exception):
+                from kg.indexer import _get_conn as _igc
+                _sc = _igc(cfg.db_path)
+                # files + chunks + bytes per source_name
+                for row in _sc.execute(
+                    "SELECT fs.source_name, COUNT(DISTINCT fs.path), "
+                    "COUNT(b.id), SUM(LENGTH(b.text)) "
+                    "FROM file_sources fs "
+                    "LEFT JOIN bullets b ON b.node_slug = fs.slug "
+                    "GROUP BY fs.source_name"
+                ).fetchall():
+                    sn, nf, nc, nb = row
+                    src_stats[sn or ""] = {"files": nf, "chunks": nc, "bytes": nb or 0}
+                _sc.close()
+
         table.add_row("Sources", str(len(cfg.sources)))
         for src in cfg.sources:
             name_part = f"[{src.name}]  " if src.name else ""
@@ -1319,6 +1343,13 @@ def status() -> None:
             if len(src.include) > 3:
                 includes += f", +{len(src.include) - 3} more"
             table.add_row(f"  {abs_p.name}", f"{name_part}{path_ok}  {includes}")
+            st = src_stats.get(src.name or "")
+            if st and st["files"] > 0:
+                kb = st["bytes"] / 1000
+                table.add_row(
+                    "",
+                    f"[dim]{st['files']} files · {st['chunks']} chunks · {kb:.0f} KB[/dim]",
+                )
     else:
         from rich.markup import escape as _markup_escape
         table.add_row(
