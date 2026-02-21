@@ -1,0 +1,43 @@
+services:
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: ${TS_HOSTNAME}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_HOSTNAME=${TS_HOSTNAME}
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - net_admin
+      - sys_module
+    restart: unless-stopped
+
+  dev:
+    build: .
+    network_mode: service:tailscale
+    depends_on:
+      - tailscale
+    volumes:
+      - .:/workspace
+      - ~/.claude/credentials.json:/home/node/.claude/credentials.json:ro
+      - commandhistory:/commandhistory
+      - uv-cache:/uv-cache
+      - npm-cache:/npm-cache
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TZ=${TZ:-UTC}
+      - VIBETUNNEL_BUNDLED=true
+    working_dir: /workspace
+    init: true
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+
+volumes:
+  tailscale-state:
+  commandhistory:
+  uv-cache:
+  npm-cache:
