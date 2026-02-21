@@ -801,10 +801,65 @@ def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool, docs: boo
         click.echo("(no nodes)")
         return
 
-    for slug, title, ntype, bullet_count, last_bullet in rows:
-        date_part = f"  {last_bullet[:10]}" if last_bullet else ""
-        type_part = f"  type={ntype}" if ntype and ntype != "concept" else ""
-        click.echo(f"[{slug}]  {title}  ●{bullet_count}{type_part}{date_part}")
+    from rich.console import Console
+    from rich.table import Table
+
+    # Pre-compute derived values for all rows
+    parsed = [
+        (slug, title, ntype or "concept", bullet_count, (last_bullet[:10] if last_bullet else "-"))
+        for slug, title, ntype, bullet_count, last_bullet in rows
+    ]
+
+    # Detect constant columns — hoist them out of the table
+    all_types = {r[2] for r in parsed}
+    all_dates = {r[4] for r in parsed}
+    const_type = all_types.pop() if len(all_types) == 1 else None
+    const_date = all_dates.pop() if len(all_dates) == 1 else None
+
+    mode = "recent" if recent else "bullets" if bullets else "default"
+    table_titles = {
+        ("default", False): "Nodes",
+        ("bullets", False): "Nodes (by bullets)",
+        ("recent", False): "Nodes (by recent)",
+        ("default", True): "Source files",
+        ("bullets", True): "Source files (by bullets)",
+        ("recent", True): "Source files (by recent)",
+    }
+
+    console = Console()
+    table = Table(title=table_titles[(mode, docs)])
+    table.add_column("Slug", style="green", no_wrap=True)
+    if not docs and const_type is None:
+        table.add_column("Type", style="cyan", no_wrap=True)
+    table.add_column("Title")
+    table.add_column("Bullets", justify="right")
+    if const_date is None:
+        table.add_column("Date", style="dim", no_wrap=True)
+
+    for slug, title, type_val, bullet_count, date_val in parsed:
+        display_title = title[:50] + "…" if len(title) > 50 else title
+        row: list[str] = [slug]
+        if not docs and const_type is None:
+            row.append(type_val)
+        row.append(display_title)
+        row.append(str(bullet_count))
+        if const_date is None:
+            row.append(date_val)
+        table.add_row(*row)
+
+    meta_rows: list[tuple[str, str]] = []
+    if not docs and const_type is not None:
+        meta_rows.append(("Type", const_type))
+    if const_date is not None:
+        meta_rows.append(("Date", const_date))
+    if meta_rows:
+        meta = Table(show_header=False, box=None, padding=(0, 1))
+        meta.add_column(style="dim")
+        meta.add_column(style="dim")
+        for k, v in meta_rows:
+            meta.add_row(k, v)
+        console.print(meta)
+    console.print(table)
 
 
 @nodes.command("show")

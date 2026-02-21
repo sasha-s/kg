@@ -44,16 +44,22 @@ def ensure_clean() -> None:
         sys.exit("Working tree is dirty — commit or stash changes first.")
 
 
+def next_patch(ver: str) -> str:
+    parts = ver.split(".")
+    parts[-1] = str(int(parts[-1]) + 1)
+    return ".".join(parts)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("version", help="New version, e.g. 0.3.0")
+    parser.add_argument("version", nargs="?", help="New version, e.g. 0.3.0 (default: bump patch)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    new_ver = args.version.lstrip("v")
+    old_ver = current_version()
+    new_ver = args.version.lstrip("v") if args.version else next_patch(old_ver)
     dry = args.dry_run
 
-    old_ver = current_version()
     print(f"Releasing {old_ver} → {new_ver}" + (" (dry run)" if dry else ""))
 
     if not dry:
