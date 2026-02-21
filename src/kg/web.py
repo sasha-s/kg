@@ -27,6 +27,14 @@ _CODE_RE = re.compile(r"`(.+?)`")
 _URL_RE = re.compile(r"https?://\S+")
 # Matches path-like strings (at least one /) for auto-linkification to _doc-* nodes
 _PATH_RE = re.compile(r"(?<![/\w])[a-zA-Z0-9_][a-zA-Z0-9_\-\.]*(?:/[a-zA-Z0-9_\-\.]+)+")
+# Sentence boundary: ". " before uppercase, "[", or "(" — used to add visual line breaks
+_SENT_RE = re.compile(r"\. (?=[A-Z\[\(])")
+
+
+def _break_sentences(text: str) -> str:
+    """Insert newlines at sentence boundaries, skipping backtick code spans."""
+    parts = re.split(r"(`[^`]*`)", text)
+    return "".join(_SENT_RE.sub(".\n", p) if i % 2 == 0 else p for i, p in enumerate(parts))
 
 
 def _get_path_slugs(cfg: KGConfig) -> dict[str, str]:
@@ -43,6 +51,8 @@ def _get_path_slugs(cfg: KGConfig) -> dict[str, str]:
 
 def _render(text: str, slugs: set[str], path_slugs: dict[str, str] | None = None) -> str:
     """Escape text and convert URLs, [[slug]] links, **bold**, `code`, file paths to HTML."""
+    text = _break_sentences(text)
+
     def _link(m: re.Match[str]) -> str:
         s = m.group(1)
         return f'<a href="/node/{s}">[[{s}]]</a>' if s in slugs else f'<span class="dead">[[{s}]]</span>'
@@ -50,7 +60,7 @@ def _render(text: str, slugs: set[str], path_slugs: dict[str, str] | None = None
     def _inner(seg: str) -> str:
         return _BOLD_RE.sub(
             r"<strong>\1</strong>",
-            _SLUG_RE.sub(_link, _CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", _html.escape(seg))),
+            _SLUG_RE.sub(_link, _CODE_RE.sub(lambda m: f"<code>{m.group(1)}</code>", _html.escape(seg).replace("\n", "<br>"))),
         )
 
     def _process_seg(seg: str) -> str:
