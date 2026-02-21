@@ -19,7 +19,7 @@ from pathlib import Path
 import click
 
 from kg import reranker as _reranker
-from kg.bootstrap import bootstrap_patterns
+from kg.bootstrap import bootstrap_patterns, bootstrap_skills
 from kg.config import KGConfig, SourceConfig, init_config, load_config
 from kg.context import build_context
 from kg.daemon import (
@@ -138,6 +138,10 @@ def init(name: str | None, root: str) -> None:
     slugs = bootstrap_patterns(cfg)
     if slugs:
         click.echo(f"Bootstrapped patterns: {', '.join(slugs)}")
+
+    skills = bootstrap_skills(cfg)
+    if skills:
+        click.echo(f"Installed skills: {', '.join(skills)}")
 
 
 # ---------------------------------------------------------------------------
@@ -1117,13 +1121,18 @@ def index(
 @cli.command()
 @click.option("--overwrite", is_flag=True, help="Re-install even if pattern nodes already exist")
 def bootstrap(overwrite: bool) -> None:
-    """Load bundled pattern nodes into the graph (fleeting-notes, graph-first-workflow, etc.)."""
+    """Load bundled pattern nodes and skills into the graph."""
     cfg = _load_cfg()
     slugs = bootstrap_patterns(cfg, overwrite=overwrite)
     if slugs:
-        click.echo(f"Bootstrapped: {', '.join(slugs)}")
+        click.echo(f"Bootstrapped patterns: {', '.join(slugs)}")
     else:
         click.echo("All patterns already present (use --overwrite to reinstall)")
+    skills = bootstrap_skills(cfg, overwrite=overwrite)
+    if skills:
+        click.echo(f"Installed skills: {', '.join(skills)}")
+    else:
+        click.echo("All skills already present (use --overwrite to reinstall)")
 
 
 # ---------------------------------------------------------------------------
@@ -1159,6 +1168,14 @@ def start(scope: str) -> None:
     """Ensure everything is running: index, watcher, MCP server, hooks."""
     cfg = _load_cfg()
     cfg.ensure_dirs()
+
+    # 0. Bootstrap patterns and skills (idempotent — skips existing)
+    slugs = bootstrap_patterns(cfg)
+    if slugs:
+        click.echo(f"Bootstrapped patterns: {', '.join(slugs)}")
+    skills = bootstrap_skills(cfg)
+    if skills:
+        click.echo(f"Installed skills: {', '.join(skills)}")
 
     # 1. Reindex
     click.echo("Indexing nodes...")

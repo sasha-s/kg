@@ -41,7 +41,7 @@ where = ["src"]
 kg = [
     "_vendor/fastcdc/*.pyx",
     "_vendor/fastcdc/*.py",
-    ".kg/skills/**/*",
+    "skills/**/*",
 ]
 
 [tool.ruff]

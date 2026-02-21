@@ -64,6 +64,15 @@ def _patterns_dir() -> Path:
         return Path(__file__).parent / "patterns"
 
 
+def _skills_dir() -> Path:
+    """Return path to bundled skills directory."""
+    try:
+        ref = resources.files("kg") / "skills"
+        return Path(str(ref))
+    except Exception:
+        return Path(__file__).parent / "skills"
+
+
 def bootstrap_patterns(cfg: KGConfig, *, overwrite: bool = False) -> list[str]:
     """Load bundled patterns into the graph. Returns list of bootstrapped slugs."""
     store = FileStore(cfg.nodes_dir)
@@ -97,3 +106,30 @@ def bootstrap_patterns(cfg: KGConfig, *, overwrite: bool = False) -> list[str]:
         bootstrapped.append(slug)
 
     return bootstrapped
+
+
+def bootstrap_skills(cfg: KGConfig, *, overwrite: bool = False) -> list[str]:
+    """Copy bundled skills into .kg/skills/. Returns list of installed skill names."""
+    skills_src = _skills_dir()
+    if not skills_src.exists():
+        return []
+
+    skills_dst = cfg.index_dir.parent / "skills"
+    skills_dst.mkdir(parents=True, exist_ok=True)
+
+    installed: list[str] = []
+    for skill_dir in sorted(skills_src.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            continue
+        dest_dir = skills_dst / skill_dir.name
+        dest_file = dest_dir / "SKILL.md"
+        if not overwrite and dest_file.exists():
+            continue
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(skill_file, dest_file)
+        installed.append(skill_dir.name)
+
+    return installed
