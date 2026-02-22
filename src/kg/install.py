@@ -21,7 +21,14 @@ _HOOK_COMMAND = f"{sys.executable} -m kg.hooks.session_context"
 _STOP_HOOK_COMMAND = f"{sys.executable} -m kg.hooks.stop"
 _MCP_SERVER_NAME = "kg"
 # Module-name fragments used to recognize kg hooks regardless of Python path
-_KG_HOOK_MODULES = {"kg.hooks.session_context", "kg.hooks.stop"}
+_KG_HOOK_MODULES = {"kg.hooks.session_context", "kg.hooks.stop", "kg.agents.hooks"}
+
+# Agent hook commands (installed when agents.enabled = true)
+_AGENT_SESSION_START_CMD = f"{sys.executable} -m kg.agents.hooks session_start"
+_AGENT_USER_PROMPT_CMD = f"{sys.executable} -m kg.agents.hooks user_prompt_submit"
+_AGENT_POST_TOOL_CMD = f"{sys.executable} -m kg.agents.hooks post_tool_use"
+_AGENT_STOP_CMD = f"{sys.executable} -m kg.agents.hooks stop"
+_AGENT_SESSION_END_CMD = f"{sys.executable} -m kg.agents.hooks session_end"
 
 
 def _is_kg_hook(command: str) -> bool:
@@ -208,6 +215,53 @@ def ensure_dot_claude_symlink(cfg: KGConfig) -> tuple[bool, str]:
 
     dot_claude.symlink_to(target_name)
     return True, f"Created .claude → {target_name}"
+
+
+def ensure_agent_hooks_installed(cfg: Any) -> list[tuple[bool, str]]:
+    """Install agent hooks into ~/.claude/settings.json. Idempotent.
+
+    Requires cfg.agents.enabled=True and cfg.agents.name set.
+    Installs: SessionStart, UserPromptSubmit, PostToolUse (async), Stop, SessionEnd.
+    """
+    if not cfg.agents.enabled or not cfg.agents.name:
+        return [(False, "agents.enabled=false or agents.name not set — skipping")]
+
+    path = _claude_settings_path()
+    settings = _load_settings(path)
+    hooks_section = settings.setdefault("hooks", {})
+    results: list[tuple[bool, str]] = []
+    changed = False
+
+    def _ensure(event: str, cmd: str, marker: str, *, async_hook: bool = False, matcher: str = "") -> None:
+        nonlocal changed
+        entry_list = hooks_section.setdefault(event, [])
+        already = any(
+            marker in h.get("command", "")
+            for entry in entry_list
+            for h in entry.get("hooks", [])
+        )
+        if already:
+            results.append((True, f"{event}: already installed"))
+            return
+        hook: dict[str, Any] = {"type": "command", "command": cmd}
+        if async_hook:
+            hook["async"] = True
+        item: dict[str, Any] = {"hooks": [hook]}
+        if matcher:
+            item["matcher"] = matcher
+        entry_list.append(item)
+        results.append((True, f"{event}: installed"))
+        changed = True
+
+    _ensure("SessionStart", _AGENT_SESSION_START_CMD, "session_start")
+    _ensure("UserPromptSubmit", _AGENT_USER_PROMPT_CMD, "user_prompt_submit")
+    _ensure("PostToolUse", _AGENT_POST_TOOL_CMD, "post_tool_use", async_hook=True, matcher=".*")
+    _ensure("Stop", _AGENT_STOP_CMD, "agents.hooks stop")
+    _ensure("SessionEnd", _AGENT_SESSION_END_CMD, "session_end")
+
+    if changed:
+        _save_settings(path, settings)
+    return results
 
 
 def list_all_hooks(settings_path: Path | None = None) -> list[dict[str, Any]]:

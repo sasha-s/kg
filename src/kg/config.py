@@ -160,6 +160,18 @@ class HooksConfig:
 
 
 @dataclass
+class AgentsConfig:
+    """[agents] section in kg.toml — agent message bus configuration."""
+
+    enabled: bool = False
+    name: str = ""  # this instance's agent name (empty = not an agent)
+    mux_url: str = "http://127.0.0.1:7346"
+    mux_port: int = 7346  # port for the local mux server
+    git_sync: bool = False  # write messages/sessions to git (future)
+    worktrees: bool = False  # use --worktree for CC sessions (future)
+
+
+@dataclass
 class KGConfig:
     """Resolved configuration for a knowledge graph project."""
 
@@ -174,10 +186,28 @@ class KGConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     hooks: HooksConfig = field(default_factory=HooksConfig)
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
 
     @property
     def db_path(self) -> Path:
         return self.index_dir / "graph.db"
+
+    @property
+    def kg_dir(self) -> Path:
+        return self.index_dir.parent
+
+    @property
+    def mux_db_path(self) -> Path:
+        return self.index_dir / "mux.db"
+
+    @property
+    def mux_pid_path(self) -> Path:
+        return self.index_dir / ".mux.pid"
+
+    @property
+    def sessions_dir(self) -> Path:
+        """Session transcript storage — git-tracked (outside index/)."""
+        return self.index_dir.parent / "sessions"
 
     @property
     def use_turso(self) -> bool:
@@ -242,6 +272,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
     srv_section = raw.get("server", {})
     srch_section = raw.get("search", {})
     hooks_section = raw.get("hooks", {})
+    agents_section = raw.get("agents", {})
 
     sources: list[SourceConfig] = []
     for s in raw.get("sources", []):
@@ -292,6 +323,14 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         ),
         hooks=HooksConfig(
             stop=bool(hooks_section.get("stop", True)),
+        ),
+        agents=AgentsConfig(
+            enabled=bool(agents_section.get("enabled", False)),
+            name=str(agents_section.get("name", "")),
+            mux_url=str(agents_section.get("mux_url", "http://127.0.0.1:7346")),
+            mux_port=int(agents_section.get("mux_port", 7346)),
+            git_sync=bool(agents_section.get("git_sync", False)),
+            worktrees=bool(agents_section.get("worktrees", False)),
         ),
     )
 

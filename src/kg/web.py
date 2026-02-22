@@ -9,6 +9,7 @@ Routes:
 from __future__ import annotations
 
 import html as _html
+import json
 import re
 import socketserver
 import urllib.parse
@@ -16,6 +17,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from kg.config import KGConfig
     from kg.models import FileNode
 
@@ -186,6 +189,38 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 .chunk-hdr{display:flex;align-items:center;justify-content:space-between;padding:4px 12px;background:rgba(255,255,255,.03);font-size:11px;color:var(--mt);font-family:monospace}
 .chunk pre{margin:0;overflow-x:auto}
 .chunk pre code.hljs{padding:14px 16px;background:transparent!important;font-size:12px;line-height:1.5}
+/* agents */
+.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:16px}
+.ag-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px}
+.ag-card h3{font-size:14px;font-weight:600;margin-bottom:6px}
+.ag-card h3 a{color:var(--tx)}
+.ag-status{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600}
+.ag-running{background:#064e3b;color:#34d399}
+.ag-idle{background:#1f2937;color:#9ca3af}
+.msg-thread{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.msg{padding:10px 14px;border-radius:8px;border-left:3px solid var(--bd)}
+.msg-in{background:var(--sf);border-color:var(--ac)}
+.msg-out{background:rgba(255,255,255,.03);border-color:#7c3aed}
+.msg-hdr{font-size:11px;color:var(--mt);margin-bottom:4px}
+.msg-body{font-size:13px;white-space:pre-wrap;word-break:break-word}
+.session-list{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.session-row{display:flex;gap:10px;align-items:center;padding:6px 10px;border-radius:6px;border:1px solid transparent}
+.session-row:hover{background:var(--sf);border-color:var(--bd)}
+/* session log */
+.turn{margin-bottom:12px}
+.turn-user{background:rgba(88,166,255,.08);border-left:3px solid var(--ac);padding:10px 14px;border-radius:0 6px 6px 0}
+.turn-assistant{padding:10px 0}
+.turn-label{font-size:10px;color:var(--mt);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.turn-text{font-size:13px;white-space:pre-wrap;word-break:break-word}
+.tool-call{background:var(--sf);border:1px solid var(--bd);border-radius:6px;margin:6px 0;overflow:hidden}
+.tool-hdr{display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(255,255,255,.04);font-size:11px;font-family:monospace;cursor:pointer}
+.tool-hdr:hover{background:rgba(255,255,255,.07)}
+.tool-body{padding:10px;font-size:11px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;display:none}
+.tool-body.open{display:block}
+.send-form{margin-top:20px;display:flex;gap:8px}
+.send-form textarea{flex:1;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);padding:8px 10px;font-size:13px;resize:vertical;min-height:60px}
+.send-form textarea:focus{outline:none;border-color:var(--ac)}
+.send-form button{background:var(--ac);color:#0f1117;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;align-self:flex-end}
 /* markdown body */
 .md-body{padding:16px;font-size:14px;line-height:1.7}
 .md-body h1,.md-body h2,.md-body h3,.md-body h4{margin:1.2em 0 .4em;color:var(--tx);line-height:1.3}
@@ -255,6 +290,7 @@ def _page(cfg: KGConfig, title: str, body: str, q: str = "", extra_head: str = "
         f'{extra_head}'
         f'</head>\n<body>'
         f'<nav><a class="brand" href="/">{name}</a>'
+        f'<a href="/agents" style="color:var(--mt);font-size:13px">agents</a>'
         f'<form action="/search" method="get">'
         f'<input name="q" type="search" placeholder="Search nodes…" value="{qesc}" autocomplete="off">'
         f'<button type="submit">Search</button></form></nav>'
@@ -900,6 +936,238 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
     ]
 
 
+# ─── Agent pages ──────────────────────────────────────────────────────────────
+
+
+def _mux_agents(cfg: KGConfig) -> list[dict]:
+    """Return agents list from mux SQLite, or [] if unavailable."""
+    import contextlib
+    import sqlite3
+    result: list[dict] = []
+    with contextlib.suppress(Exception):
+        conn = sqlite3.connect(str(cfg.mux_db_path))
+        conn.row_factory = sqlite3.Row
+        agents = [dict(r) for r in conn.execute("SELECT * FROM agents ORDER BY name").fetchall()]
+        pending = dict(conn.execute(
+            "SELECT to_agent, COUNT(*) FROM messages WHERE status='pending' GROUP BY to_agent"
+        ).fetchall())
+        msgs_by_agent = {}
+        for row in conn.execute(
+            "SELECT to_agent, from_agent, timestamp, urgency, body, status FROM messages ORDER BY id"
+        ).fetchall():
+            msgs_by_agent.setdefault(row[0], []).append(dict(zip(
+                ["to_agent", "from_agent", "timestamp", "urgency", "body", "status"], row,
+                strict=False,
+            )))
+        conn.close()
+        for a in agents:
+            a["pending_count"] = pending.get(a["name"], 0)
+            a["messages"] = msgs_by_agent.get(a["name"], [])
+        result = agents
+    return result
+
+
+def _render_agents_page(cfg: KGConfig) -> str:
+    agents = _mux_agents(cfg)
+    if not agents:
+        body = "<h1>Agents</h1><p style='color:var(--mt)'>No agents registered. Start an agent with <code>[agents] enabled = true</code> in kg.toml.</p>"
+        return _page(cfg, "Agents", body)
+
+    cards = ""
+    for a in agents:
+        status_cls = "ag-running" if a["status"] == "running" else "ag-idle"
+        n = a.get("pending_count", 0)
+        pending_str = f' <span style="color:#fbbf24">({n} pending)</span>' if n else ""
+        last = (a.get("last_seen") or "")[:19]
+        cards += (
+            f'<div class="ag-card">'
+            f'<h3><a href="/agent/{_html.escape(a["name"])}">{_html.escape(a["name"])}</a></h3>'
+            f'<span class="ag-status {status_cls}">{_html.escape(a["status"])}</span>{pending_str}'
+            f'<div style="color:var(--mt);font-size:11px;margin-top:6px">{last}</div>'
+            f'</div>'
+        )
+    body = f'<h1>Agents</h1><div class="ag-grid">{cards}</div>'
+    return _page(cfg, "Agents", body)
+
+
+def _render_agent_page(cfg: KGConfig, agent_name: str) -> str:
+    import contextlib
+    import datetime
+    import sqlite3
+
+    # Load messages
+    messages: list[dict] = []
+    with contextlib.suppress(Exception):
+        conn = sqlite3.connect(str(cfg.mux_db_path))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE to_agent=? OR from_agent=? ORDER BY id",
+            (agent_name, agent_name),
+        ).fetchall()
+        messages = [dict(r) for r in rows]
+        conn.close()
+
+    # Load sessions
+    sessions_dir = cfg.sessions_dir / agent_name
+    sessions: list[tuple[str, str]] = []
+    if sessions_dir.exists():
+        for p in sorted(sessions_dir.glob("*.jsonl"), key=lambda x: x.stat().st_mtime, reverse=True):
+            mtime = datetime.datetime.fromtimestamp(  # noqa: DTZ006
+                p.stat().st_mtime
+            ).strftime("%Y-%m-%d %H:%M")
+            sessions.append((p.stem, mtime))
+
+    # Render message thread
+    thread_html = ""
+    if messages:
+        items = ""
+        for m in messages:
+            is_in = m["to_agent"] == agent_name
+            cls = "msg-in" if is_in else "msg-out"
+            frm = m.get("from_agent") or "?"
+            ts = (m.get("timestamp") or "")[:19]
+            urg = " 🔴" if m.get("urgency") == "urgent" else ""
+            st = m.get("status", "")
+            body_txt = _html.escape(str(m.get("body", "")))
+            items += (
+                f'<div class="msg {cls}">'
+                f'<div class="msg-hdr">{_html.escape(frm)}{urg} · {ts} · {st}</div>'
+                f'<div class="msg-body">{body_txt}</div>'
+                f'</div>'
+            )
+        thread_html = f'<h2>Messages</h2><div class="msg-thread">{items}</div>'
+
+    # Send form
+    send_form = (
+        f'<h2>Send Message</h2>'
+        f'<form class="send-form" method="post" action="/agent/{_html.escape(agent_name)}/message">'
+        f'<textarea name="body" placeholder="Type a message…"></textarea>'
+        f'<button type="submit">Send</button>'
+        f'</form>'
+    )
+
+    # Sessions list
+    sessions_html = ""
+    if sessions:
+        rows_html = "".join(
+            f'<div class="session-row">'
+            f'<a href="/agent/{_html.escape(agent_name)}/session/{sid}">'
+            f'<code>{_html.escape(sid[:16])}…</code></a>'
+            f'<span style="color:var(--mt);font-size:12px">{mtime}</span>'
+            f'</div>'
+            for sid, mtime in sessions
+        )
+        sessions_html = f'<h2>Sessions</h2><div class="session-list">{rows_html}</div>'
+
+    body = (
+        f"<h1>{_html.escape(agent_name)}</h1>"
+        f"{thread_html}"
+        f"{send_form}"
+        f"{sessions_html}"
+    )
+    return _page(cfg, agent_name, body)
+
+
+def _parse_session(session_path: Path) -> list[dict]:
+    """Parse Claude Code session JSONL into simplified turn list."""
+    import contextlib
+    turns = []
+    with contextlib.suppress(Exception):
+        for line in session_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            t = entry.get("type", "")
+            if t == "summary":
+                turns.append({"type": "summary", "text": entry.get("summary", "")})
+            elif t in ("human", "user"):
+                msg = entry.get("message", {})
+                content = msg.get("content", "")
+                if isinstance(content, list):
+                    text = " ".join(
+                        c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"
+                    )
+                else:
+                    text = str(content)
+                if text.strip():
+                    turns.append({"type": "user", "text": text, "ts": entry.get("timestamp", "")})
+            elif t == "assistant":
+                msg = entry.get("message", {})
+                content = msg.get("content", [])
+                if not isinstance(content, list):
+                    content = [{"type": "text", "text": str(content)}]
+                text_parts = []
+                tool_calls = []
+                for c in content:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "text":
+                        text_parts.append(c.get("text", ""))
+                    elif c.get("type") == "tool_use":
+                        inp = c.get("input", {})
+                        inp_str = json.dumps(inp, indent=2) if isinstance(inp, dict) else str(inp)
+                        tool_calls.append({"name": c.get("name", "?"), "input": inp_str})
+                if text_parts or tool_calls:
+                    turns.append({
+                        "type": "assistant",
+                        "text": "\n".join(text_parts),
+                        "tool_calls": tool_calls,
+                        "ts": entry.get("timestamp", ""),
+                    })
+    return turns
+
+
+def _render_session_page(cfg: KGConfig, agent_name: str, session_id: str) -> str:
+    session_path = cfg.sessions_dir / agent_name / f"{session_id}.jsonl"
+    if not session_path.exists():
+        return _render_404(cfg, f"session {session_id}")
+
+    turns = _parse_session(session_path)
+    items = ""
+    for turn in turns:
+        if turn["type"] == "summary":
+            items += f'<div style="color:var(--mt);font-size:12px;font-style:italic;margin-bottom:8px">{_html.escape(turn["text"])}</div>'
+        elif turn["type"] == "user":
+            items += (
+                f'<div class="turn turn-user">'
+                f'<div class="turn-label">User · {(turn.get("ts") or "")[:19]}</div>'
+                f'<div class="turn-text">{_html.escape(turn["text"])}</div>'
+                f'</div>'
+            )
+        elif turn["type"] == "assistant":
+            tool_html = ""
+            for tc in turn.get("tool_calls", []):
+                inp_esc = _html.escape(tc["input"][:2000])
+                tool_html += (
+                    f'<div class="tool-call">'
+                    f'<div class="tool-hdr" onclick="this.nextElementSibling.classList.toggle(\'open\')">'
+                    f'▶ {_html.escape(tc["name"])}</div>'
+                    f'<div class="tool-body">{inp_esc}</div>'
+                    f'</div>'
+                )
+            text_esc = _html.escape(turn["text"]) if turn["text"] else ""
+            items += (
+                f'<div class="turn turn-assistant">'
+                f'<div class="turn-label">Assistant · {(turn.get("ts") or "")[:19]}</div>'
+                f'<div class="turn-text">{text_esc}</div>'
+                f'{tool_html}'
+                f'</div>'
+            )
+
+    if not items:
+        items = '<p style="color:var(--mt)">Empty session or unrecognised format.</p>'
+
+    back = f'<a href="/agent/{_html.escape(agent_name)}" style="font-size:12px;color:var(--mt)">← {_html.escape(agent_name)}</a>'
+    body = (
+        f'{back}<h1 style="margin-top:8px">Session <code style="font-size:0.8em">{_html.escape(session_id[:20])}</code></h1>'
+        f'<div style="margin-top:12px">{items}</div>'
+    )
+    return _page(cfg, f"Session — {agent_name}", body)
+
+
 # ─── HTTP handler ─────────────────────────────────────────────────────────────
 
 class _Handler(BaseHTTPRequestHandler):
@@ -919,6 +1187,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._search(qs.get("q", [""])[0])
         elif path.startswith("/api/related/"):
             self._api_related(path[13:])
+        elif path == "/agents":
+            self._html(_render_agents_page(self.cfg))
+        elif path.startswith("/agent/"):
+            self._agent_route(path)
         else:
             self._html(_render_404(self.cfg, path), 404)
 
@@ -949,6 +1221,42 @@ class _Handler(BaseHTTPRequestHandler):
         slugs = _get_slugs_db(self.cfg)
         results = _do_search(query, self.cfg)
         self._html(_render_search_page(self.cfg, query, results, slugs))
+
+    def _agent_route(self, path: str) -> None:
+        # /agent/<name>  or  /agent/<name>/session/<id>
+        parts = path[len("/agent/"):].split("/")
+        if len(parts) == 1 and parts[0]:
+            self._html(_render_agent_page(self.cfg, parts[0]))
+        elif len(parts) == 3 and parts[1] == "session" and parts[2]:
+            self._html(_render_session_page(self.cfg, parts[0], parts[2]))
+        else:
+            self._html(_render_404(self.cfg, path), 404)
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        # POST /agent/<name>/message — send message via web UI
+        if path.startswith("/agent/") and path.endswith("/message"):
+            name = path[len("/agent/"):-len("/message")]
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length).decode(errors="replace") if length else ""
+            form = urllib.parse.parse_qs(raw)
+            body = form.get("body", [""])[0].strip()
+            if body and name:
+                import contextlib
+                import urllib.request as _ureq
+                payload = json.dumps({"from": "web", "body": body}).encode()
+                req = _ureq.Request(  # noqa: S310
+                    f"{self.cfg.agents.mux_url}/agent/{name}/messages",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with contextlib.suppress(Exception):
+                    _ureq.urlopen(req, timeout=3)  # noqa: S310
+            self._redirect(f"/agent/{name}")
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def _api_related(self, slug: str) -> None:
         import contextlib

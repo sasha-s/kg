@@ -35,6 +35,7 @@ from kg.db import get_conn as _get_db_conn
 from kg.file_indexer import collect_files, index_source
 from kg.indexer import calibrate, get_calibration, get_calibration_status, rebuild_all
 from kg.install import (
+    ensure_agent_hooks_installed,
     ensure_hook_installed,
     ensure_mcp_registered,
     ensure_stop_hook_installed,
@@ -1235,6 +1236,16 @@ def start(scope: str) -> None:
     marker = "✓" if ok else "~"
     click.echo(f"  {marker} .claude symlink: {msg}")
 
+    # 7. Agents (if enabled)
+    if cfg.agents.enabled and cfg.agents.name:
+        click.echo("\nStarting agent mux...")
+        from kg.agents.mux import start_background
+        ok, msg = start_background(cfg)
+        click.echo(f"  {'✓' if ok else '✗'} {msg}")
+        click.echo("Installing agent hooks...")
+        for hook_ok, hook_msg in ensure_agent_hooks_installed(cfg):
+            click.echo(f"  {'✓' if hook_ok else '✗'} {hook_msg}")
+
     click.echo("\nDone. Run `kg status` to verify.")
 
 
@@ -1681,6 +1692,14 @@ def migrate_refs(dry_run: bool) -> None:
 # ---------------------------------------------------------------------------
 
 cli.add_command(search, name="query")
+
+# ---------------------------------------------------------------------------
+# Agent mux subcommand group
+# ---------------------------------------------------------------------------
+
+from kg.agents.cli import mux_cli  # noqa: E402
+
+cli.add_command(mux_cli)
 
 # ---------------------------------------------------------------------------
 # Entry point
