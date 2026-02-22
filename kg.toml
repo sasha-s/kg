@@ -11,13 +11,47 @@ name = "kg"
 # exclude = [".kg/**", "**/__pycache__/**"]
 # use_git = true      # use git ls-files to respect .gitignore
 # max_size_kb = 512
+[[sources]]
+name = "src"
+path = "/workspace/kg/kg"
+include = ["**/*.py", "**/*.md", "**/*.toml", "**/*.ts", "**/*.rs", "**/Dockerfile", "**/*.sh"]
+exclude = [
+    ".kg/**",               # KG own files
+    "**/__pycache__/**",
+    "**/.venv/**",          # Python virtual envs
+    "**/node_modules/**",   # JS deps
+    # Rust build artifacts — gitignored but explicit for safety
+    "**/target/debug/**",
+    "**/target/release/**",
+    "**/target/bpfel-unknown-unknown/**",
+    "**/target/.rustc_info.json",
+    # Binary file extensions (should not match include patterns, but belt+suspenders)
+    "**/*.rlib",
+    "**/*.so",
+    "**/*.dylib",
+    "**/*.wasm",
+    "**/*.a",
+    # Old worktrees (gitignored, but explicit)
+    "pr200/**",
+    "wt-pr*/**",
+    "test-audit/**",
+    # Anchor / Solana local ledger
+    "**/.anchor/**",
+    "**/test-ledger/**",
+]
 
 # [review]
 # budget_threshold = 500   # chars served before flagging a node for review (default: 500)
 
-# [embeddings]
+[embeddings]
+model = "fastembed:BAAI/bge-small-en-v1.5"
 # model = "openai:text-embedding-3-small"
 
 [server]
-port = 7343
+port = 8343
+vector_port = 8345
+web_port = 8347
 web_host = "0.0.0.0"
+
+
+

@@ -44,13 +44,23 @@ def _is_kg_hook(command: str) -> bool:
 def ensure_mcp_registered(scope: str = "user", root: Path | None = None) -> tuple[bool, str]:
     """Register `kg serve --root <root>` as an MCP server. Idempotent.
 
+    scope="local"  → writes directly into <root>/.claude/settings.json (fully local, no ~/.claude)
+    scope="user"   → delegates to `claude mcp add --scope user` (global ~/.claude/settings.json)
+    scope="project"→ delegates to `claude mcp add --scope project`
+
     Passes --root so the server works regardless of invocation cwd.
     Returns (success, message).
     """
+    root_path = str(root.resolve()) if root else str(Path.cwd().resolve())
+
+    if scope == "local":
+        # Use --scope project → writes .mcp.json at project root (nothing in ~/.claude).
+        # claude mcp add --scope project is the correct mechanism for project-local MCP.
+        scope = "project"
+
     if not shutil.which("claude"):
         return False, "`claude` CLI not found — install Claude Code to register MCP server"
 
-    root_path = str(root.resolve()) if root else str(Path.cwd().resolve())
     kg_bin = shutil.which("kg")
     if kg_bin is None:
         return (
@@ -68,8 +78,8 @@ def ensure_mcp_registered(scope: str = "user", root: Path | None = None) -> tupl
         check=False,
     )
     if _MCP_SERVER_NAME in result.stdout:
-        # Check ~/.claude.json for correct root arg
-        claude_json = Path.home() / ".claude.json"
+        # Check ~/.claude/.claude.json (user-scoped store) for correct args
+        claude_json = Path.home() / ".claude" / ".claude.json"
         if claude_json.exists():
             try:
                 data = json.loads(claude_json.read_text())
@@ -120,9 +130,9 @@ def _save_settings(path: Path, settings: dict[str, Any]) -> None:
     path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
-def ensure_hook_installed() -> tuple[bool, str]:
-    """Merge session_context hook into ~/.claude/settings.json. Idempotent."""
-    path = _claude_settings_path()
+def ensure_hook_installed(settings_path: Path | None = None) -> tuple[bool, str]:
+    """Merge session_context hook into settings.json. Idempotent."""
+    path = settings_path or _claude_settings_path()
     settings = _load_settings(path)
 
     hooks_section = settings.setdefault("hooks", {})
@@ -149,8 +159,17 @@ def ensure_hook_installed() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def mcp_health(_cfg: KGConfig) -> str:
+def mcp_health(cfg: KGConfig) -> str:
     """Quick health string."""
+    # Check project .mcp.json first (--scope project, nothing in ~/.claude)
+    mcp_json = cfg.root / ".mcp.json"
+    if mcp_json.exists():
+        try:
+            data = json.loads(mcp_json.read_text())
+            if _MCP_SERVER_NAME in data.get("mcpServers", {}):
+                return f"registered in .mcp.json ('{_MCP_SERVER_NAME}')"
+        except Exception:  # noqa: S110
+            pass
     if not shutil.which("claude"):
         return "claude CLI not found"
     result = subprocess.run(
@@ -161,12 +180,12 @@ def mcp_health(_cfg: KGConfig) -> str:
     )
     if _MCP_SERVER_NAME in result.stdout:
         return f"registered ('{_MCP_SERVER_NAME}')"
-    return "not registered — run `kg start` to register"
+    return "not registered — run `kg start --scope local` to register"
 
 
-def hook_status() -> str:
+def hook_status(settings_path: Path | None = None) -> str:
     """Return hook installation status string."""
-    path = _claude_settings_path()
+    path = settings_path or _claude_settings_path()
     settings = _load_settings(path)
     for entry in settings.get("hooks", {}).get("UserPromptSubmit", []):
         for h in entry.get("hooks", []):
@@ -175,9 +194,9 @@ def hook_status() -> str:
     return "not installed — run `kg start` to install"
 
 
-def ensure_stop_hook_installed() -> tuple[bool, str]:
-    """Merge stop hook into ~/.claude/settings.json under Stop event. Idempotent."""
-    path = _claude_settings_path()
+def ensure_stop_hook_installed(settings_path: Path | None = None) -> tuple[bool, str]:
+    """Merge stop hook into settings.json under Stop event. Idempotent."""
+    path = settings_path or _claude_settings_path()
     settings = _load_settings(path)
 
     hooks_section = settings.setdefault("hooks", {})
@@ -198,17 +217,30 @@ def ensure_stop_hook_installed() -> tuple[bool, str]:
 
 
 def ensure_dot_claude_symlink(cfg: KGConfig) -> tuple[bool, str]:
-    """Create <project_root>/.claude → .kg symlink. Idempotent.
+    """Create <project_root>/.claude → .kg/.claude symlink. Idempotent.
 
-    This lets Claude Code find local settings/commands in .kg/ when running
-    inside the project directory, same pattern as mg's .claude → .memory_graph.
+    .kg/.claude/ holds only Claude Code config (settings.json, skills/).
+    Keeping it separate from .kg/ prevents Claude from seeing nodes/index/ as
+    part of .claude/.
     """
     dot_claude = cfg.root / ".claude"
-    target_name = cfg.index_dir.parent.name  # ".kg" (relative)
+    claude_subdir = cfg.kg_dir / ".claude"  # .kg/.claude/
+    target_name = ".kg/.claude"  # relative symlink target
+
+    # Ensure .kg/.claude/ exists with a skills symlink inside
+    claude_subdir.mkdir(parents=True, exist_ok=True)
+    skills_link = claude_subdir / "skills"
+    if not skills_link.exists() and not skills_link.is_symlink():
+        skills_link.symlink_to("../skills")
 
     if dot_claude.is_symlink():
-        if dot_claude.resolve() == cfg.kg_dir.resolve():
+        if dot_claude.resolve() == claude_subdir.resolve():
             return True, f".claude symlink already points to {target_name}"
+        # Upgrade old .claude → .kg to .claude → .kg/.claude
+        if dot_claude.resolve() == cfg.kg_dir.resolve():
+            dot_claude.unlink()
+            dot_claude.symlink_to(target_name)
+            return True, f"Updated .claude symlink: .kg → {target_name}"
         return False, f".claude symlink exists but points elsewhere ({dot_claude.readlink()}), skipping"
     if dot_claude.exists():
         return False, ".claude exists as a real directory — skipping symlink creation"
@@ -217,8 +249,8 @@ def ensure_dot_claude_symlink(cfg: KGConfig) -> tuple[bool, str]:
     return True, f"Created .claude → {target_name}"
 
 
-def ensure_agent_hooks_installed(cfg: Any) -> list[tuple[bool, str]]:
-    """Install agent hooks into ~/.claude/settings.json. Idempotent.
+def ensure_agent_hooks_installed(cfg: Any, settings_path: Path | None = None) -> list[tuple[bool, str]]:
+    """Install agent hooks into settings.json. Idempotent.
 
     Requires cfg.agents.enabled=True and cfg.agents.name set.
     Installs: SessionStart, UserPromptSubmit, PostToolUse (async), Stop, SessionEnd.
@@ -226,7 +258,7 @@ def ensure_agent_hooks_installed(cfg: Any) -> list[tuple[bool, str]]:
     if not cfg.agents.enabled or not cfg.agents.name:
         return [(False, "agents.enabled=false or agents.name not set — skipping")]
 
-    path = _claude_settings_path()
+    path = settings_path or _claude_settings_path()
     settings = _load_settings(path)
     hooks_section = settings.setdefault("hooks", {})
     results: list[tuple[bool, str]] = []

@@ -307,7 +307,11 @@ def rebuild_all(nodes_dir: Path, db_path: Path, *, verbose: bool = False, cfg: K
         conn.close()
     else:
         if db_path.exists():
-            db_path.unlink()
+            # Also remove WAL/SHM files — on virtiofs (OrbStack/Docker) orphaned
+            # WAL files cause "disk I/O error" on the next connection open.
+            for suffix in ("", "-shm", "-wal"):
+                p = db_path.parent / (db_path.name + suffix)
+                p.unlink(missing_ok=True)
         conn = _get_conn(db_path)
         _ensure_schema(conn)
         conn.close()

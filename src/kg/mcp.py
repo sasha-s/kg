@@ -1,12 +1,13 @@
 """Stdio MCP server for kg using FastMCP.
 
 Tools (named for compatibility with memory_graph MCP):
-    memory_context(query, session_id?)   → compact context text
-    memory_search(query, limit?)         → list of search results
-    memory_show(slug)                    → node text
-    memory_add_bullet(node_slug, text, bullet_type?, status?) → bullet_id
-    memory_mark_reviewed(slug)           → confirm reviewed
-    memory_review(threshold?, limit?)    → nodes needing review
+    memory_context(query, session_id?)          → compact context text
+    memory_search(query, limit?)                → list of search results
+    memory_show(slug)                           → node text
+    memory_add_bullet(node_slug, text, ...)     → bullet_id
+    memory_delete_bullet(bullet_id)             → confirm deleted
+    memory_mark_reviewed(slug)                  → confirm reviewed
+    memory_review(threshold?, limit?)           → nodes needing review
 
 Session ID:
     Auto-injected by hooks/session_context.py via Claude's additionalContext.
@@ -129,6 +130,37 @@ def memory_add_bullet(
         status=status or None,
     )
     return bullet.id
+
+
+@mcp.tool()
+def memory_delete_bullet(
+    bullet_id: Annotated[str, "Bullet ID to delete (e.g. b-abc12345)"],
+) -> str:
+    """Delete a bullet by ID (appends a tombstone — logically removes it from all views)."""
+    import json as _json
+
+    cfg = _cfg()
+    slug: str | None = None
+    if cfg.nodes_dir.exists():
+        for path in cfg.nodes_dir.glob("*/node.jsonl"):
+            try:
+                for line in path.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = _json.loads(line)
+                    if obj.get("id") == bullet_id and not obj.get("deleted"):
+                        slug = path.parent.name
+                        break
+            except Exception:  # noqa: BLE001
+                continue
+            if slug:
+                break
+    if slug is None:
+        return f"Bullet not found: {bullet_id}"
+    store = FileStore(cfg.nodes_dir)
+    store.delete_bullet(slug, bullet_id)
+    return f"Deleted {bullet_id} from [{slug}]"
 
 
 @mcp.tool()

@@ -40,7 +40,8 @@ def bump_version(new: str) -> None:
 
 def ensure_clean() -> None:
     result = run(["git", "status", "--porcelain"], capture=True)
-    if result.stdout.strip():
+    tracked_changes = [l for l in result.stdout.splitlines() if not l.startswith("??")]
+    if tracked_changes:
         sys.exit("Working tree is dirty — commit or stash changes first.")
 
 

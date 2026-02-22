@@ -1217,14 +1217,18 @@ def start(scope: str) -> None:
     marker = "✓" if ok else "✗"
     click.echo(f"  {marker} {msg}")
 
-    # 5. Hooks
-    click.echo("Installing hooks...")
-    ok, msg = ensure_hook_installed()
+    # 5. Hooks — local scope writes to .claude/settings.json in project root
+    local_settings = cfg.root / ".claude" / "settings.json" if scope == "local" else None
+    if local_settings:
+        click.echo(f"Installing hooks (local: {local_settings})...")
+    else:
+        click.echo("Installing hooks...")
+    ok, msg = ensure_hook_installed(settings_path=local_settings)
     marker = "✓" if ok else "✗"
     click.echo(f"  {marker} session_context (UserPromptSubmit): {msg}")
 
     if cfg.hooks.stop:
-        ok, msg = ensure_stop_hook_installed()
+        ok, msg = ensure_stop_hook_installed(settings_path=local_settings)
         marker = "✓" if ok else "✗"
         click.echo(f"  {marker} stop (Stop): {msg}")
     else:
@@ -1243,7 +1247,7 @@ def start(scope: str) -> None:
         ok, msg = start_background(cfg)
         click.echo(f"  {'✓' if ok else '✗'} {msg}")
         click.echo("Installing agent hooks...")
-        for hook_ok, hook_msg in ensure_agent_hooks_installed(cfg):
+        for hook_ok, hook_msg in ensure_agent_hooks_installed(cfg, settings_path=local_settings):
             click.echo(f"  {'✓' if hook_ok else '✗'} {hook_msg}")
 
     click.echo("\nDone. Run `kg status` to verify.")
@@ -1441,12 +1445,17 @@ def status() -> None:
 
     table.add_row("MCP", mcp_health(cfg))
 
-    # --- Hooks ---
+    # --- Hooks --- check local .claude/settings.json first, fall back to global
     table.add_row("", "")
     from kg.install import _claude_settings_path
 
-    hooks = list_all_hooks()
-    settings_path = _claude_settings_path()
+    local_settings = cfg.root / ".claude" / "settings.json"
+    if local_settings.exists():
+        hooks = list_all_hooks(settings_path=local_settings)
+        settings_path = local_settings
+    else:
+        hooks = list_all_hooks()
+        settings_path = _claude_settings_path()
 
     def _module_installed(module: str) -> bool:
         return any(module in h["command"] for h in hooks)
@@ -1461,14 +1470,31 @@ def status() -> None:
     }
 
     n_installed = len(hooks)
-    table.add_row("Hooks", f"{n_installed} installed  ({settings_path})")
+    hook_src = f"({settings_path})" if hooks else f"[red]none in {settings_path} — run `kg start --scope local`[/red]"
+    table.add_row("Hooks", f"{n_installed} installed  {hook_src}")
     for h in hooks:
         cmd_short = h["command"].split()[-1] if h["command"] else h["command"]
         table.add_row(f"  {h['event']}", cmd_short)
     for module in kg_expected_modules:
         if not _module_installed(module):
             event = event_for_module.get(module, "?")
-            table.add_row(f"  {event}", f"[red]✗ {module} not installed — run `kg start`[/red]")
+            table.add_row(f"  {event}", f"[red]✗ {module} not installed — run `kg start --scope local`[/red]")
+
+    # --- Skills ---
+    skills_dir = cfg.root / ".claude" / "skills"
+    table.add_row("", "")
+    if skills_dir.exists():
+        skill_names = sorted(p.name for p in skills_dir.iterdir() if p.is_dir() or p.suffix == ".md")
+        if skill_names:
+            table.add_row("Skills", f"{len(skill_names)}  ({skills_dir})")
+            for s in skill_names[:8]:
+                table.add_row("", f"[dim]{s}[/dim]")
+            if len(skill_names) > 8:
+                table.add_row("", f"[dim]… {len(skill_names) - 8} more[/dim]")
+        else:
+            table.add_row("Skills", f"[dim]0  ({skills_dir})[/dim]")
+    else:
+        table.add_row("Skills", f"[dim]none — {skills_dir} not found[/dim]")
 
     # --- Sources ---
     import subprocess as _sp
