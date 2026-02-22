@@ -36,7 +36,7 @@ from pathlib import Path
 _LOG_DIR = Path.home() / ".kg" / "logs"
 _KG_NO_STOP_HOOK = "KG_NO_STOP_HOOK"
 
-_SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_BASE = """\
 STOP. Do not continue the conversation above — it is CONTEXT ONLY.
 You are a knowledge extractor for kg (knowledge graph). Extract durable knowledge \
 and maintain the graph using `kg` CLI commands.
@@ -178,6 +178,30 @@ Rules:
 - [ ] Added session anchor (intent + outcome required, kept in fleeting)
 """
 
+_AGENT_SECTION_TEMPLATE = """
+---
+
+## Step 5: Update agent working memory
+
+You are running as agent `{name}`. After the steps above, also update the `agent-{name}` node
+with key learnings specific to your ongoing work as this agent:
+
+```
+kg add agent-{name} "key decision or learning from this session" --type fact
+kg add agent-{name} "current state: what I was working on and where I left off" --type note
+```
+
+Focus on: decisions made, important context discovered, current status of ongoing work.
+This is YOUR personal working memory — not general reusable knowledge (that goes to concept nodes).
+Keep it concise — 1-3 bullets max per session.
+"""
+
+
+def _build_system_prompt(agent_name: str = "") -> str:
+    if agent_name:
+        return _SYSTEM_PROMPT_BASE + _AGENT_SECTION_TEMPLATE.format(name=agent_name)
+    return _SYSTEM_PROMPT_BASE
+
 
 def _log(session_id: str, msg: str) -> None:
     try:
@@ -258,8 +282,11 @@ def main() -> None:
     prompt_file = _LOG_DIR / f"stop-{session_id[:12]}-prompt.txt"
     log_file = _LOG_DIR / f"stop-{session_id[:12]}.log"
 
+    agent_name = os.environ.get("KG_AGENT_NAME", "")
+    system_prompt = _build_system_prompt(agent_name)
+
     try:
-        prompt_file.write_text(_SYSTEM_PROMPT)
+        prompt_file.write_text(system_prompt)
     except Exception as exc:
         _log(session_id, f"failed to write prompt file: {exc}")
         sys.exit(0)
@@ -303,6 +330,9 @@ def main() -> None:
     for key in [k for k in env if k.startswith("CLAUDE")]:
         del env[key]
     env[_KG_NO_STOP_HOOK] = "1"
+    # Preserve KG_AGENT_NAME so the extraction subprocess knows which agent node to update
+    if agent_name:
+        env["KG_AGENT_NAME"] = agent_name
 
     # Find the project dir that owns this session (may differ from current cwd
     # when kg is a sub-project of the session's workspace).

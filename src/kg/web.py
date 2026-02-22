@@ -190,19 +190,45 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 .chunk pre{margin:0;overflow-x:auto}
 .chunk pre code.hljs{padding:14px 16px;background:transparent!important;font-size:12px;line-height:1.5}
 /* agents */
-.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:16px}
+.ag-filter{width:100%;max-width:340px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);padding:6px 10px;font-size:13px;margin-bottom:14px}
+.ag-filter:focus{outline:none;border-color:var(--ac)}
+.ag-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:4px}
 .ag-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px}
 .ag-card h3{font-size:14px;font-weight:600;margin-bottom:6px}
 .ag-card h3 a{color:var(--tx)}
 .ag-status{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600}
 .ag-running{background:#064e3b;color:#34d399}
 .ag-idle{background:#1f2937;color:#9ca3af}
-.msg-thread{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.ag-paused{background:#3b2a00;color:#fbbf24}
+.ag-draining{background:#1e3a5f;color:#60a5fa}
+.ag-meta{font-size:11px;color:var(--mt);margin-top:4px}
+.ag-ctrls{display:flex;gap:5px;margin-top:10px;flex-wrap:wrap}
+.ag-btn{font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--bd);background:transparent;color:var(--tx);cursor:pointer}
+.ag-btn:hover{background:var(--bd)}
+.ag-btn-pause{border-color:#fbbf24;color:#fbbf24}
+.ag-btn-resume{border-color:#34d399;color:#34d399}
+.ag-btn-drain{border-color:#60a5fa;color:#60a5fa}
+.ag-info{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px}
+.ag-info-lbl{font-size:12px;color:var(--mt)}
+.ag-info-val{font-size:12px;color:var(--tx);font-family:monospace}
+.msg-thread{display:flex;flex-direction:column;gap:8px;margin-top:12px;max-height:520px;overflow-y:auto;padding-right:4px}
 .msg{padding:10px 14px;border-radius:8px;border-left:3px solid var(--bd)}
 .msg-in{background:var(--sf);border-color:var(--ac)}
+.msg-in.urgent{border-color:#f87171;background:rgba(248,113,113,.07)}
 .msg-out{background:rgba(255,255,255,.03);border-color:#7c3aed}
 .msg-hdr{font-size:11px;color:var(--mt);margin-bottom:4px}
 .msg-body{font-size:13px;white-space:pre-wrap;word-break:break-word}
+.chat-form{margin-top:16px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--bd);border-radius:8px;padding:12px}
+.chat-form textarea{background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);padding:8px 10px;font-size:13px;resize:vertical;min-height:56px;width:100%;box-sizing:border-box}
+.chat-form textarea:focus{outline:none;border-color:var(--ac)}
+.chat-form-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chat-send-btn{background:var(--ac);color:#0f1117;border:none;border-radius:6px;padding:7px 16px;cursor:pointer;font-size:13px;font-weight:600}
+.chat-send-btn.urgent{background:#f87171;color:#fff}
+.chat-urgent-lbl{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--mt);cursor:pointer}
+.send-form{margin-top:20px;display:flex;gap:8px}
+.send-form textarea{flex:1;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);padding:8px 10px;font-size:13px;resize:vertical;min-height:60px}
+.send-form textarea:focus{outline:none;border-color:var(--ac)}
+.send-form button{background:var(--ac);color:#0f1117;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;align-self:flex-end}
 .session-list{display:flex;flex-direction:column;gap:4px;margin-top:10px}
 .session-row{display:flex;gap:10px;align-items:center;padding:6px 10px;border-radius:6px;border:1px solid transparent}
 .session-row:hover{background:var(--sf);border-color:var(--bd)}
@@ -940,74 +966,178 @@ def _do_search(query: str, cfg: KGConfig, limit: int = 30) -> list[dict]:
 
 
 def _mux_agents(cfg: KGConfig) -> list[dict]:
-    """Return agents list from mux SQLite, or [] if unavailable."""
+    """Return agents list, merged from mux.db (runtime state), TOML defs (config), and messages.db (counts)."""
     import contextlib
     import sqlite3
-    result: list[dict] = []
+    agents_by_name: dict[str, dict] = {}
+
+    # 1. Runtime state from mux.db
     with contextlib.suppress(Exception):
         conn = sqlite3.connect(str(cfg.mux_db_path))
         conn.row_factory = sqlite3.Row
-        agents = [dict(r) for r in conn.execute("SELECT * FROM agents ORDER BY name").fetchall()]
-        pending = dict(conn.execute(
-            "SELECT to_agent, COUNT(*) FROM messages WHERE status='pending' GROUP BY to_agent"
-        ).fetchall())
-        msgs_by_agent = {}
-        for row in conn.execute(
-            "SELECT to_agent, from_agent, timestamp, urgency, body, status FROM messages ORDER BY id"
-        ).fetchall():
-            msgs_by_agent.setdefault(row[0], []).append(dict(zip(
-                ["to_agent", "from_agent", "timestamp", "urgency", "body", "status"], row,
-                strict=False,
-            )))
+        for row in conn.execute("SELECT * FROM agents ORDER BY name"):
+            a = dict(row)
+            a.setdefault("pending_count", 0)
+            a.setdefault("toml_status", "running")
+            a.setdefault("node", "")
+            a.setdefault("model", "")
+            agents_by_name[a["name"]] = a
         conn.close()
-        for a in agents:
-            a["pending_count"] = pending.get(a["name"], 0)
-            a["messages"] = msgs_by_agent.get(a["name"], [])
-        result = agents
-    return result
+
+    # 2. TOML definitions: toml_status (paused/draining), node, model
+    agents_dir = cfg.root / ".kg" / "agents"
+    if agents_dir.exists():
+        from kg.agents.launcher import AgentDef  # type: ignore[attr-defined]
+        for path in sorted(agents_dir.glob("*.toml")):
+            with contextlib.suppress(Exception):
+                defn = AgentDef.from_toml(path)
+                if defn.name not in agents_by_name:
+                    agents_by_name[defn.name] = {
+                        "name": defn.name, "status": "idle",
+                        "last_seen": None, "pending_count": 0,
+                    }
+                agents_by_name[defn.name]["toml_status"] = defn.status
+                agents_by_name[defn.name]["node"] = defn.node
+                agents_by_name[defn.name]["model"] = defn.model
+
+    # 3. Pending counts from project-local messages.db
+    with contextlib.suppress(Exception):
+        if cfg.messages_db_path.exists():
+            conn = sqlite3.connect(str(cfg.messages_db_path))
+            for name, cnt in conn.execute(
+                "SELECT to_agent, COUNT(*) FROM messages GROUP BY to_agent"
+            ).fetchall():
+                if name in agents_by_name:
+                    agents_by_name[name]["pending_count"] = cnt
+            conn.close()
+
+    return sorted(agents_by_name.values(), key=lambda a: a["name"])
+
+
+def _mux_agent_messages(cfg: KGConfig, agent_name: str, limit: int = 100) -> list[dict]:
+    """Return recent messages to/from agent_name from project-local messages.db."""
+    import contextlib
+    import sqlite3
+    msgs: list[dict] = []
+    with contextlib.suppress(Exception):
+        if cfg.messages_db_path.exists():
+            conn = sqlite3.connect(str(cfg.messages_db_path))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE to_agent=? OR from_agent=?"
+                " ORDER BY id DESC LIMIT ?",
+                (agent_name, agent_name, limit),
+            ).fetchall()
+            msgs = list(reversed([dict(r) for r in rows]))
+            conn.close()
+    return msgs
 
 
 def _render_agents_page(cfg: KGConfig) -> str:
     agents = _mux_agents(cfg)
     if not agents:
-        body = "<h1>Agents</h1><p style='color:var(--mt)'>No agents registered. Start an agent with <code>[agents] enabled = true</code> in kg.toml.</p>"
+        body = (
+            "<h1>Agents</h1>"
+            "<p style='color:var(--mt)'>No agents registered. "
+            "Enable agents with <code>[agents] enabled = true</code> in kg.toml, "
+            "then run <code>kg mux agent create &lt;name&gt;</code>.</p>"
+        )
         return _page(cfg, "Agents", body)
 
     cards = ""
     for a in agents:
-        status_cls = "ag-running" if a["status"] == "running" else "ag-idle"
+        name_e = _html.escape(a["name"])
+        # Runtime status badge
+        rt_status = a.get("status", "idle")
+        rt_cls = "ag-running" if rt_status == "running" else "ag-idle"
+        rt_badge = f'<span class="ag-status {rt_cls}">{rt_status}</span>'
+        # TOML status badge (if non-running)
+        ts = a.get("toml_status", "running")
+        toml_badge = ""
+        if ts == "paused":
+            toml_badge = '<span class="ag-status ag-paused" style="margin-left:5px">paused</span>'
+        elif ts == "draining":
+            toml_badge = '<span class="ag-status ag-draining" style="margin-left:5px">draining</span>'
+        # Pending
         n = a.get("pending_count", 0)
-        pending_str = f' <span style="color:#fbbf24">({n} pending)</span>' if n else ""
+        pending_str = f' <span style="color:#fbbf24;font-size:11px">({n} pending)</span>' if n else ""
+        # Meta row
+        node = a.get("node", "")
+        model = a.get("model", "")
+        meta_parts = []
+        if node:
+            meta_parts.append(f"node: {_html.escape(node)}")
+        if model:
+            meta_parts.append(f"model: {_html.escape(model)}")
         last = (a.get("last_seen") or "")[:19]
+        if last:
+            meta_parts.append(last)
+        meta = f'<div class="ag-meta">{" · ".join(meta_parts)}</div>' if meta_parts else ""
+        # Control buttons (forms POST to /agent/<name>/ctrl)
+        ctrls = f'<div class="ag-ctrls">'
+        if ts == "paused":
+            ctrls += (
+                f'<form method="post" action="/agent/{name_e}/ctrl" style="display:inline">'
+                f'<input type="hidden" name="action" value="resume">'
+                f'<button class="ag-btn ag-btn-resume" type="submit">resume</button></form>'
+            )
+        elif ts == "draining":
+            ctrls += (
+                f'<form method="post" action="/agent/{name_e}/ctrl" style="display:inline">'
+                f'<input type="hidden" name="action" value="resume">'
+                f'<button class="ag-btn ag-btn-resume" type="submit">resume</button></form>'
+            )
+        else:
+            ctrls += (
+                f'<form method="post" action="/agent/{name_e}/ctrl" style="display:inline">'
+                f'<input type="hidden" name="action" value="pause">'
+                f'<button class="ag-btn ag-btn-pause" type="submit">pause</button></form> '
+                f'<form method="post" action="/agent/{name_e}/ctrl" style="display:inline">'
+                f'<input type="hidden" name="action" value="drain">'
+                f'<button class="ag-btn ag-btn-drain" type="submit">drain</button></form>'
+            )
+        ctrls += "</div>"
         cards += (
-            f'<div class="ag-card">'
-            f'<h3><a href="/agent/{_html.escape(a["name"])}">{_html.escape(a["name"])}</a></h3>'
-            f'<span class="ag-status {status_cls}">{_html.escape(a["status"])}</span>{pending_str}'
-            f'<div style="color:var(--mt);font-size:11px;margin-top:6px">{last}</div>'
+            f'<div class="ag-card" data-name="{name_e}">'
+            f'<h3><a href="/agent/{name_e}">{name_e}</a></h3>'
+            f'{rt_badge}{toml_badge}{pending_str}'
+            f'{meta}{ctrls}'
             f'</div>'
         )
-    body = f'<h1>Agents</h1><div class="ag-grid">{cards}</div>'
+
+    filter_js = (
+        '<script>'
+        'document.getElementById("ag-filter").addEventListener("input",function(){'
+        'var q=this.value.toLowerCase();'
+        'document.querySelectorAll(".ag-card").forEach(function(c){'
+        'c.style.display=c.dataset.name.toLowerCase().includes(q)?"":"none";});});'
+        '</script>'
+    )
+    body = (
+        f'<h1>Agents</h1>'
+        f'<input id="ag-filter" class="ag-filter" type="search" placeholder="Filter agents…" autocomplete="off">'
+        f'<div class="ag-grid">{cards}</div>'
+        f'{filter_js}'
+    )
     return _page(cfg, "Agents", body)
 
 
 def _render_agent_page(cfg: KGConfig, agent_name: str) -> str:
-    import contextlib
     import datetime
-    import sqlite3
 
-    # Load messages
-    messages: list[dict] = []
-    with contextlib.suppress(Exception):
-        conn = sqlite3.connect(str(cfg.mux_db_path))
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE to_agent=? OR from_agent=? ORDER BY id",
-            (agent_name, agent_name),
-        ).fetchall()
-        messages = [dict(r) for r in rows]
-        conn.close()
+    agent_name_e = _html.escape(agent_name)
 
-    # Load sessions
+    # Load agent runtime + TOML info
+    agent_info: dict = {"status": "unknown", "toml_status": "running", "node": "", "model": ""}
+    for a in _mux_agents(cfg):
+        if a["name"] == agent_name:
+            agent_info = a
+            break
+
+    # Load messages from project-local messages.db
+    messages = _mux_agent_messages(cfg, agent_name)
+
+    # Load sessions (reverse-chronological)
     sessions_dir = cfg.sessions_dir / agent_name
     sessions: list[tuple[str, str]] = []
     if sessions_dir.exists():
@@ -1017,53 +1147,136 @@ def _render_agent_page(cfg: KGConfig, agent_name: str) -> str:
             ).strftime("%Y-%m-%d %H:%M")
             sessions.append((p.stem, mtime))
 
-    # Render message thread
+    # Info bar
+    ts = agent_info.get("toml_status", "running")
+    rt = agent_info.get("status", "unknown")
+    rt_cls = "ag-running" if rt == "running" else "ag-idle"
+    ts_badge = ""
+    if ts == "paused":
+        ts_badge = '<span class="ag-status ag-paused" style="margin-left:6px">paused</span>'
+    elif ts == "draining":
+        ts_badge = '<span class="ag-status ag-draining" style="margin-left:6px">draining</span>'
+
+    node_val = _html.escape(agent_info.get("node", "") or "local")
+    model_val = _html.escape(agent_info.get("model", "") or "default")
+    last_seen = (agent_info.get("last_seen") or "")[:19]
+    info_bar = (
+        f'<div class="ag-info">'
+        f'<span class="ag-status {rt_cls}">{rt}</span>{ts_badge}'
+        f'<span><span class="ag-info-lbl">node </span><span class="ag-info-val">{node_val}</span></span>'
+        f'<span><span class="ag-info-lbl">model </span><span class="ag-info-val">{model_val}</span></span>'
+        + (f'<span class="ag-info-lbl">{last_seen}</span>' if last_seen else "")
+        + f'</div>'
+    )
+
+    # Control buttons
+    ctrl_btns = '<div class="ag-ctrls" style="margin-bottom:16px">'
+    if ts == "paused":
+        ctrl_btns += (
+            f'<form method="post" action="/agent/{agent_name_e}/ctrl" style="display:inline">'
+            f'<input type="hidden" name="action" value="resume">'
+            f'<button class="ag-btn ag-btn-resume" type="submit">resume</button></form>'
+        )
+    elif ts == "draining":
+        ctrl_btns += (
+            f'<form method="post" action="/agent/{agent_name_e}/ctrl" style="display:inline">'
+            f'<input type="hidden" name="action" value="resume">'
+            f'<button class="ag-btn ag-btn-resume" type="submit">resume</button></form>'
+        )
+    else:
+        ctrl_btns += (
+            f'<form method="post" action="/agent/{agent_name_e}/ctrl" style="display:inline">'
+            f'<input type="hidden" name="action" value="pause">'
+            f'<button class="ag-btn ag-btn-pause" type="submit">pause</button></form> '
+            f'<form method="post" action="/agent/{agent_name_e}/ctrl" style="display:inline">'
+            f'<input type="hidden" name="action" value="drain">'
+            f'<button class="ag-btn ag-btn-drain" type="submit">drain</button></form>'
+        )
+    ctrl_btns += "</div>"
+
+    # Message thread
     thread_html = ""
     if messages:
         items = ""
         for m in messages:
-            is_in = m["to_agent"] == agent_name
-            cls = "msg-in" if is_in else "msg-out"
-            frm = m.get("from_agent") or "?"
-            ts = (m.get("timestamp") or "")[:19]
-            urg = " 🔴" if m.get("urgency") == "urgent" else ""
-            st = m.get("status", "")
+            is_in = m.get("to_agent") == agent_name
+            is_urgent = m.get("urgency") == "urgent"
+            cls = ("msg-in" + (" urgent" if is_urgent else "")) if is_in else "msg-out"
+            frm = _html.escape(m.get("from_agent") or "?")
+            msg_ts = (m.get("timestamp") or "")[:19]
+            urg_tag = ' <span style="color:#f87171;font-size:10px">URGENT</span>' if is_urgent else ""
             body_txt = _html.escape(str(m.get("body", "")))
             items += (
                 f'<div class="msg {cls}">'
-                f'<div class="msg-hdr">{_html.escape(frm)}{urg} · {ts} · {st}</div>'
+                f'<div class="msg-hdr">{frm}{urg_tag} · {msg_ts}</div>'
                 f'<div class="msg-body">{body_txt}</div>'
                 f'</div>'
             )
-        thread_html = f'<h2>Messages</h2><div class="msg-thread">{items}</div>'
+        scroll_js = '<script>var t=document.getElementById("msg-thread");if(t)t.scrollTop=t.scrollHeight;</script>'
+        thread_html = f'<h2>Messages</h2><div class="msg-thread" id="msg-thread">{items}</div>{scroll_js}'
 
-    # Send form
-    send_form = (
-        f'<h2>Send Message</h2>'
-        f'<form class="send-form" method="post" action="/agent/{_html.escape(agent_name)}/message">'
-        f'<textarea name="body" placeholder="Type a message…"></textarea>'
-        f'<button type="submit">Send</button>'
-        f'</form>'
+    # Chat form (send message, with urgent toggle)
+    chat_form = (
+        f'<div class="chat-form">'
+        f'<form method="post" action="/agent/{agent_name_e}/message" id="chat-form">'
+        f'<textarea name="body" id="chat-body" placeholder="Send a message…"></textarea>'
+        f'<div class="chat-form-row">'
+        f'<button class="chat-send-btn" id="chat-send-btn" type="submit">Send</button>'
+        f'<label class="chat-urgent-lbl">'
+        f'<input type="checkbox" name="urgent" id="chat-urgent"> Urgent</label>'
+        f'</div></form>'
+        f'</div>'
+        # JS: toggle button style on urgent checkbox change
+        f'<script>'
+        f'var cb=document.getElementById("chat-urgent"),btn=document.getElementById("chat-send-btn");'
+        f'if(cb&&btn)cb.addEventListener("change",function(){{'
+        f'btn.className="chat-send-btn"+(this.checked?" urgent":"");'
+        f'}});'
+        f'</script>'
     )
+
+    # Auto-refresh when agent is running (poll every 8s, update thread only)
+    auto_refresh = ""
+    if rt == "running":
+        auto_refresh = (
+            f'<script>'
+            f'(function(){{'
+            f'var tid=0;'
+            f'function refresh(){{'
+            f'fetch(location.href).then(function(r){{return r.text();}}).then(function(html){{'
+            f'var p=new DOMParser(),doc=p.parseFromString(html,"text/html");'
+            f'var nt=doc.getElementById("msg-thread"),ot=document.getElementById("msg-thread");'
+            f'if(nt&&ot){{var atB=ot.scrollHeight-ot.scrollTop<=ot.clientHeight+60;'
+            f'ot.innerHTML=nt.innerHTML;if(atB)ot.scrollTop=ot.scrollHeight;}}'
+            f'}}).catch(function(){{}});'
+            f'}}'
+            f'tid=setInterval(refresh,8000);'
+            f'}})();'
+            f'</script>'
+        )
 
     # Sessions list
     sessions_html = ""
     if sessions:
         rows_html = "".join(
             f'<div class="session-row">'
-            f'<a href="/agent/{_html.escape(agent_name)}/session/{sid}">'
-            f'<code>{_html.escape(sid[:16])}…</code></a>'
+            f'<a href="/agent/{agent_name_e}/session/{_html.escape(sid)}">'
+            f'<code style="font-size:11px">{_html.escape(sid[:24])}</code></a>'
             f'<span style="color:var(--mt);font-size:12px">{mtime}</span>'
             f'</div>'
             for sid, mtime in sessions
         )
         sessions_html = f'<h2>Sessions</h2><div class="session-list">{rows_html}</div>'
 
+    back = f'<a href="/agents" style="font-size:12px;color:var(--mt)">← agents</a>'
     body = (
-        f"<h1>{_html.escape(agent_name)}</h1>"
+        f"{back}<h1 style='margin-top:8px'>{agent_name_e}</h1>"
+        f"{info_bar}"
+        f"{ctrl_btns}"
         f"{thread_html}"
-        f"{send_form}"
+        f"{chat_form}"
         f"{sessions_html}"
+        f"{auto_refresh}"
     )
     return _page(cfg, agent_name, body)
 
@@ -1233,19 +1446,27 @@ class _Handler(BaseHTTPRequestHandler):
             self._html(_render_404(self.cfg, path), 404)
 
     def do_POST(self) -> None:
+        import contextlib
+
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-        # POST /agent/<name>/message — send message via web UI
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length).decode(errors="replace") if length else ""
+        form = urllib.parse.parse_qs(raw)
+
+        # POST /agent/<name>/message — send message via mux
         if path.startswith("/agent/") and path.endswith("/message"):
             name = path[len("/agent/"):-len("/message")]
-            length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length).decode(errors="replace") if length else ""
-            form = urllib.parse.parse_qs(raw)
             body = form.get("body", [""])[0].strip()
+            urgent = bool(form.get("urgent", [""])[0])
             if body and name:
-                import contextlib
                 import urllib.request as _ureq
-                payload = json.dumps({"from": "web", "body": body}).encode()
+                payload = json.dumps({
+                    "from": "web",
+                    "body": body,
+                    "urgency": "urgent" if urgent else "normal",
+                    "type": "text",
+                }).encode()
                 req = _ureq.Request(  # noqa: S310
                     f"{self.cfg.agents.mux_url}/agent/{name}/messages",
                     data=payload,
@@ -1254,6 +1475,18 @@ class _Handler(BaseHTTPRequestHandler):
                 with contextlib.suppress(Exception):
                     _ureq.urlopen(req, timeout=3)  # noqa: S310
             self._redirect(f"/agent/{name}")
+
+        # POST /agent/<name>/ctrl — pause / resume / drain
+        elif path.startswith("/agent/") and path.endswith("/ctrl"):
+            name = path[len("/agent/"):-len("/ctrl")]
+            action = form.get("action", [""])[0]
+            if name and action in ("pause", "resume", "drain"):
+                status_map = {"pause": "paused", "resume": "running", "drain": "draining"}
+                with contextlib.suppress(Exception):
+                    from kg.agents.launcher import update_agent_def  # type: ignore[attr-defined]
+                    update_agent_def(self.cfg, name, status=status_map[action])
+            self._redirect(f"/agent/{name}")
+
         else:
             self.send_response(404)
             self.end_headers()

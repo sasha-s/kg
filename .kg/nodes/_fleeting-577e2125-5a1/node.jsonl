@@ -1,0 +1,58 @@
+{"v": 1, "slug": "_fleeting-577e2125-5a1", "title": "_fleeting-577e2125-5a1", "type": "concept", "created_at": "2026-02-22T04:41:54.673024+00:00"}
+{"id": "b-2722c546", "type": "note", "text": "intent: review kg agent mux \u2014 how multiple agents work in local mode", "created_at": "2026-02-22T04:41:54.673248+00:00"}
+{"id": "b-7d4ce36c", "type": "note", "text": "outcome: explained mux architecture (SQLite broker, HTTP API, 5 Claude Code hooks, web UI at /agents); cleaned stale mg-CLI bullets from agent-delegation node and added current patterns (Task tool for ephemeral, kg mux for stable named agents)", "created_at": "2026-02-22T04:41:55.398303+00:00"}
+{"id": "b-e70d8ee3", "type": "gotcha", "text": "gotcha: mux project-scope bug discovered \u2014 one mux per project, but design needs one shared user-level mux for all local agents", "created_at": "2026-02-22T04:49:50.522817+00:00"}
+{"id": "b-357ed2de", "type": "fact", "text": "discovered: sprites.dev are Fly.io VMs on Fly private WireGuard mesh \u2014 sprite-to-sprite communication via .flycast private URLs, no auth needed on private network", "created_at": "2026-02-22T05:23:23.891778+00:00"}
+{"id": "b-745e8995", "type": "decision", "text": "decided: local:alice / sprite-name:alice addressing scheme for agent mux \u2014 'local' = this mux, named sprite = remote mux forwarding", "created_at": "2026-02-22T05:23:28.292672+00:00"}
+{"id": "b-09d6c83d", "type": "decision", "text": "decided: LiteLLM as central proxy for Claude Code auth \u2014 all sprites set ANTHROPIC_BASE_URL to LiteLLM, only LiteLLM holds real API key / OAuth. Enables max sub via forward_client_headers_to_llm_api=true", "created_at": "2026-02-22T05:23:33.183679+00:00"}
+{"id": "b-a2e4f68c", "type": "note", "text": "tbd: OAuth token persistence on LiteLLM for max subscription \u2014 unclear how to store/refresh across restarts", "created_at": "2026-02-22T05:23:37.180246+00:00"}
+{"id": "b-78d4bac4", "type": "note", "text": "intent: design review of kg agent mux architecture for local/remote multi-agent mode", "created_at": "2026-02-22T05:24:34.745982+00:00"}
+{"id": "b-3013d538", "type": "note", "text": "outcome: three key decisions \u2014 (1) user-level mux with KG_AGENT_NAME env var, (2) local:agent / sprite:agent addressing, (3) LiteLLM as central Claude auth proxy for all sprites", "created_at": "2026-02-22T05:24:38.774069+00:00"}
+{"id": "b-e70d8ee3", "deleted": true}
+{"id": "b-357ed2de", "deleted": true}
+{"id": "b-745e8995", "deleted": true}
+{"id": "b-09d6c83d", "deleted": true}
+{"id": "b-a2e4f68c", "deleted": true}
+{"id": "b-2722c546", "deleted": true}
+{"id": "b-7d4ce36c", "deleted": true}
+{"id": "b-1bc6852f", "type": "note", "text": "intent: design multi-agent mux architecture \u2014 local multi-agent, sprite-based remote agents, LiteLLM auth proxy", "created_at": "2026-02-22T05:30:10.803019+00:00"}
+{"id": "b-040374dc", "type": "note", "text": "outcome: three key decisions \u2014 (1) user-level mux + KG_AGENT_NAME env var replaces kg.toml name, (2) local:alice / sprite:alice addressing scheme, (3) LiteLLM as central Claude auth proxy; sprites.dev run on Fly private WireGuard mesh", "created_at": "2026-02-22T05:30:11.362921+00:00"}
+{"id": "b-e2f69d9f", "type": "task", "text": "pending: implement local multi-agent (7 changes: user-level mux DB/PID, KG_AGENT_NAME env override, session archiving to hook, mux agent create/list/delete CLI, remove name from kg.toml)", "status": "pending", "created_at": "2026-02-22T05:30:11.906702+00:00"}
+{"id": "b-78d4bac4", "deleted": true}
+{"id": "b-3013d538", "deleted": true}
+{"id": "b-1bc6852f", "deleted": true}
+{"id": "b-040374dc", "deleted": true}
+{"id": "b-e2f69d9f", "deleted": true}
+{"id": "b-27de48df", "type": "note", "text": "intent: design multi-agent local setup for kg mux \u2014 sprites, LiteLLM proxy, agent node pairs", "created_at": "2026-02-22T05:40:46.753951+00:00"}
+{"id": "b-ec161023", "type": "note", "text": "outcome: implemented full local multi-agent: user-level mux DB, KG_AGENT_NAME env var, kg mux agent create/list/delete, agent node pairs injected at SessionStart, stop hook agent-aware, segmented JSONL inbox with per-sender acks + messages.db index + inbox cap + two-pointer crash recovery. Also designed sprite addressing + LiteLLM proxy arch (not yet implemented).", "created_at": "2026-02-22T05:40:50.622573+00:00", "updated_at": "2026-02-22T06:10:58.081756+00:00"}
+{"id": "b-fbc10a0d", "type": "gotcha", "text": "gotcha: OAuth token for Claude max subscription on headless sprites is unsolved \u2014 TBD as local proxy or API key fallback", "created_at": "2026-02-22T05:40:53.865085+00:00"}
+{"id": "b-1157c6e5", "type": "task", "text": "pending: implement local multi-agent: user-level mux DB, KG_AGENT_NAME env, kg mux agent create, agent node pairs", "status": "pending", "created_at": "2026-02-22T05:40:56.816607+00:00"}
+{"id": "b-1157c6e5", "deleted": true}
+{"id": "b-bfa4f4ba", "type": "task", "text": "pending: implement sprite addressing (local:x / sprite:x routing), [[agents.sprites]] config, kg agent run wrapper command", "status": "pending", "created_at": "2026-02-22T05:47:04.746920+00:00"}
+{"id": "b-ff55a6d0", "type": "task", "text": "pending: refactor mux schema to per-sender inbox (acks table, remove status field, git-friendly file layout)", "status": "pending", "created_at": "2026-02-22T05:49:26.673062+00:00"}
+{"id": "b-fd1a8a9a", "type": "task", "text": "pending: add send_message MCP tool (sender from KG_AGENT_NAME env, recipient explicit)", "status": "pending", "created_at": "2026-02-22T05:49:27.292454+00:00"}
+{"id": "b-fbc10a0d", "deleted": true}
+{"id": "b-bfa4f4ba", "deleted": true}
+{"id": "b-ff55a6d0", "deleted": true}
+{"id": "b-fd1a8a9a", "deleted": true}
+{"id": "b-bfa4c077", "type": "task", "text": "pending: implement git_sync actual operations (commit-after-ack, pull-rebase retry), send_message MCP tool, kg mux agent compact, agent run wrapper, sprite routing, LiteLLM integration; fix agent_list CLI bug (queries non-existent messages table in mux.db)", "status": "pending", "created_at": "2026-02-22T05:58:31.935219+00:00", "updated_at": "2026-02-22T06:10:54.130783+00:00"}
+{"id": "b-bfa4c077", "deleted": true}
+{"id": "b-9deeacdb", "type": "task", "text": "pending: fix agent_list CLI bug (queries non-existent messages table in mux.db); implement git_sync ops; send_message MCP tool; kg mux agent compact; launcher + .kg/agents.toml; sprite routing; LiteLLM OAuth proxy", "status": "pending", "created_at": "2026-02-22T06:12:47.671596+00:00"}
+{"id": "b-9deeacdb", "deleted": true}
+{"id": "b-172eae3f", "type": "task", "text": "pending: implement git_sync ops in mux; send_message MCP tool (sender from KG_AGENT_NAME, recipient explicit); kg mux agent compact <name> (delete fully-acked segment files); two-layer launcher TOML watching (inotify_simple local + git pull polling). agent_list bug FIXED.", "status": "pending", "created_at": "2026-02-22T06:26:09.568402+00:00", "updated_at": "2026-02-22T06:35:08.487905+00:00"}
+{"id": "b-ec161023", "deleted": true}
+{"id": "b-1c05a25f", "type": "note", "text": "outcome: implemented full local multi-agent system: user-level mux DB, KG_AGENT_NAME env var, kg mux agent create/list/delete + .kg/agents/<name>.toml, agent node pairs (instructions injected at SessionStart, memory via MCP), segmented JSONL per-sender inbox + two-pointer acks + messages.db index + inbox cap + crash recovery, kg launcher (per-node supervisor) with backoff/wake-on-message/git-pull. Also designed sprite+LiteLLM proxy arch (not yet impl).", "created_at": "2026-02-22T06:26:19.131281+00:00"}
+{"id": "b-1c05a25f", "deleted": true}
+{"id": "b-9c8193c6", "type": "note", "text": "outcome: completed full local multi-agent impl (user-level mux DB, KG_AGENT_NAME, JSONL inbox, launcher with backoff/wake-on-message) PLUS AgentDef.status field (running/paused/draining), launcher lifecycle logic for each state, kg launcher agent pause/resume/drain/migrate CLI commands, update_agent_def() helper, fixed agent_list pending-count bug (queries messages.db not mux.db).", "created_at": "2026-02-22T06:31:45.684620+00:00"}
+{"id": "b-172eae3f", "deleted": true}
+{"id": "b-9d40580d", "type": "task", "text": "pending: (1) inotify watcher for .kg/agents/*.toml in launcher (reuse watcher.py pattern); (2) kg mux agent compact <name>; (3) send_message MCP tool; (4) sprite addressing + mux-to-mux routing; (5) LiteLLM OAuth token persistence. [sessions_sync done this session]", "status": "pending", "created_at": "2026-02-22T06:31:54.505288+00:00", "updated_at": "2026-02-22T06:40:57.306493+00:00"}
+{"id": "b-c6f88af2", "type": "note", "text": "intent: continuation \u2014 implement agent lifecycle status controls (pause/drain/resume/migrate) and fix agent_list pending-count bug", "created_at": "2026-02-22T06:35:11.491051+00:00"}
+{"id": "b-89e6c668", "type": "note", "text": "outcome: added AgentDef.status field (running|paused|draining), launcher respects status in _sync/_reap/_wake/_launch; added update_agent_def() helper; added kg launcher agent pause/resume/drain/migrate CLI; fixed agent_list to query messages_db_path not mux.db", "created_at": "2026-02-22T06:35:14.580773+00:00"}
+{"id": "b-c6f88af2", "deleted": true}
+{"id": "b-89e6c668", "deleted": true}
+{"id": "b-67a48f0b", "type": "note", "text": "intent: continuation \u2014 add sessions_sync config + implement agents web tab improvements (filter, status controls, chat form, auto-refresh)", "created_at": "2026-02-22T06:41:07.812337+00:00"}
+{"id": "b-a632e241", "type": "note", "text": "outcome: added sessions_sync=true to AgentsConfig + hooks.py (git commit after archive); rewrote /agents + /agent/<name> web pages \u2014 fixed broken mux.db messages table queries, added filter input, TOML status badges, pause/drain/resume buttons, urgent checkbox, fetch-based auto-refresh; added POST /agent/<name>/ctrl route; added _mux_agent_messages() and updated _mux_agents() to merge mux.db+TOML+messages.db", "created_at": "2026-02-22T06:41:13.145542+00:00"}
+{"id": "b-9d40580d", "deleted": true}
+{"id": "b-3115f5f5", "type": "note", "text": "intent: complete all pending multi-agent items \u2014 launcher status field, web agents tab, MCP send_message, kg run wrapper, heartbeat timeout, inotify file watching", "created_at": "2026-02-22T06:49:00.099766+00:00"}
+{"id": "b-74d28db6", "type": "note", "text": "outcome: implemented AgentDef.status (running/paused/draining) + launcher lifecycle; kg launcher agent pause/resume/drain/migrate CLI; sessions_sync + heartbeat_timeout AgentsConfig fields; web /agents+/agent/<name> rewrites (filter, status badges, ctrl buttons, urgent send, auto-refresh, fixed messages.db queries); POST /agent/<name>/ctrl route; MCP send_message tool; kg run <name> command; launcher two-layer inotify+poll file watching with KG_LAUNCHER_POLL env; fixed cfg.agents.name\u2192cfg.agent_name bug in mux_send + kg init", "created_at": "2026-02-22T06:49:08.257717+00:00"}
+{"id": "b-5a8d730b", "type": "task", "text": "pending: sprite addressing (local:alice vs sprite:alice mux-to-mux routing); kg mux agent compact <name>; LiteLLM OAuth token persistence; KG node existence check in agent_list CLI", "status": "pending", "created_at": "2026-02-22T06:49:13.085947+00:00"}

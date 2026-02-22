@@ -1,0 +1,187 @@
+{
+  "token_budget": 0.0,
+  "bullets": {
+    "b-bd0f2842": {
+      "useful": 10,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.458876+00:00"
+    },
+    "b-26446901": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T05:39:43.462559+00:00"
+    },
+    "b-1e78fbd7": {
+      "useful": 12,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.858434+00:00"
+    },
+    "b-348a9590": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T05:39:43.465351+00:00"
+    },
+    "b-82a9dbb2": {
+      "useful": 6,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.860014+00:00"
+    },
+    "b-5a934e6b": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.861566+00:00"
+    },
+    "b-3a5eed87": {
+      "useful": 5,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.472161+00:00"
+    },
+    "b-8cd8a2f7": {
+      "useful": 12,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.863095+00:00"
+    },
+    "b-90968937": {
+      "useful": 9,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.866373+00:00"
+    },
+    "b-b273c23e": {
+      "useful": 9,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.868076+00:00"
+    },
+    "b-c8238510": {
+      "useful": 3,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.864673+00:00"
+    },
+    "b-a567c962": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.722805+00:00"
+    },
+    "b-db154300": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:30:44.711740+00:00"
+    },
+    "b-282102bd": {
+      "useful": 5,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.856646+00:00"
+    },
+    "b-9ccb81a8": {
+      "useful": 6,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.871450+00:00"
+    },
+    "b-f8f38ab1": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T05:58:14.332876+00:00"
+    },
+    "b-6aaa216a": {
+      "useful": 5,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.869777+00:00"
+    },
+    "b-c3435d7b": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.874440+00:00"
+    },
+    "b-bfc3aaef": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.876035+00:00"
+    },
+    "b-bcec911a": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.877673+00:00"
+    },
+    "b-7dcffb58": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.879129+00:00"
+    },
+    "b-d2da762e": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:26:36.143995+00:00"
+    },
+    "b-1a7718b1": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.466223+00:00"
+    },
+    "b-3f648b69": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.468169+00:00"
+    },
+    "b-72731acf": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:39.872935+00:00"
+    },
+    "b-7e1691e6": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.460772+00:00"
+    },
+    "b-960de69a": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.462559+00:00"
+    },
+    "b-42eba444": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.464311+00:00"
+    },
+    "b-2e70f582": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.470185+00:00"
+    },
+    "b-4a21b993": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:40.474011+00:00"
+    }
+  },
+  "last_bullet_checkpoint": 0,
+  "last_reviewed": "2026-02-22T06:48:50.118839+00:00"
+}

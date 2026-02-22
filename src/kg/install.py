@@ -255,8 +255,8 @@ def ensure_agent_hooks_installed(cfg: Any, settings_path: Path | None = None) ->
     Requires cfg.agents.enabled=True and cfg.agents.name set.
     Installs: SessionStart, UserPromptSubmit, PostToolUse (async), Stop, SessionEnd.
     """
-    if not cfg.agents.enabled or not cfg.agents.name:
-        return [(False, "agents.enabled=false or agents.name not set — skipping")]
+    if not cfg.agents.enabled:
+        return [(False, "agents.enabled=false — skipping")]
 
     path = settings_path or _claude_settings_path()
     settings = _load_settings(path)

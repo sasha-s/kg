@@ -1,0 +1,67 @@
+{
+  "bullets": {
+    "b-ef11b376": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.723602+00:00"
+    },
+    "b-53744b25": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.724524+00:00"
+    },
+    "b-a8a3cb18": {
+      "useful": 3,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.725284+00:00"
+    },
+    "b-59f4b0dc": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:30:44.722021+00:00"
+    },
+    "b-c68f38d1": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:30:44.722622+00:00"
+    },
+    "b-dd1e1e26": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:30:44.723120+00:00"
+    },
+    "b-7e66566e": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.725876+00:00"
+    },
+    "b-908e14c1": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.726406+00:00"
+    },
+    "b-551e6060": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.726978+00:00"
+    },
+    "b-a9dc4534": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:40:28.727522+00:00"
+    }
+  },
+  "token_budget": 0.0,
+  "last_bullet_checkpoint": 0,
+  "last_reviewed": "2026-02-22T06:48:50.706371+00:00"
+}

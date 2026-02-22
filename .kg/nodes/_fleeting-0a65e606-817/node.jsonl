@@ -1,0 +1,12 @@
+{"v": 1, "slug": "_fleeting-0a65e606-817", "title": "_fleeting-0a65e606-817", "type": "concept", "created_at": "2026-02-22T02:36:08.854476+00:00"}
+{"id": "b-cfcc823a", "type": "note", "text": "intent: set up local isolation for kg dev instance \u2014 local .claude, local MCP, separate ports", "created_at": "2026-02-22T02:36:08.854708+00:00"}
+{"id": "b-e0f7c965", "type": "note", "text": "outcome: kg start --scope local now writes MCP + hooks entirely into .claude/settings.json; fixed virtiofs WAL bug in rebuild_all (delete -shm/-wal alongside .db); added .envrc for local venv PATH", "created_at": "2026-02-22T02:36:09.415544+00:00"}
+{"id": "b-f5dce1ef", "type": "gotcha", "text": "gotcha: claude mcp add --scope local goes to ~/.claude/.claude.json not project .claude/settings.json \u2014 bypassed by writing settings.json directly [[kg-architecture]]", "created_at": "2026-02-22T02:36:09.995148+00:00"}
+{"id": "b-98a75f2d", "type": "gotcha", "text": "gotcha: virtiofs WAL desync \u2014 stale watcher processes holding deleted graph.db inode block next kg start; fix: pkill .venv kg procs + rm graph.db* [[kg-architecture]]", "created_at": "2026-02-22T02:36:10.555068+00:00"}
+{"id": "b-f5dce1ef", "deleted": true}
+{"id": "b-98a75f2d", "deleted": true}
+{"id": "b-571c9127", "type": "gotcha", "text": "gotcha: claude mcp add --scope local goes to ~/.claude/.claude.json not .claude/settings.json \u2014 must write mcpServers directly to bypass", "created_at": "2026-02-22T03:36:33.064895+00:00"}
+{"id": "b-04fd7bad", "type": "note", "text": "outcome: also migrated global kg hooks+MCP out of ~/.claude/settings.json into /workspace/.claude/settings.json \u2014 three-layer isolation complete", "created_at": "2026-02-22T03:36:35.547221+00:00"}
+{"id": "b-571c9127", "deleted": true}
+{"id": "b-a5e161c9", "type": "note", "text": "intent: isolate kg dev instance in /workspace/kg/kg \u2014 local .claude, MCP, ports, no ~/.claude pollution", "created_at": "2026-02-22T03:38:52.550289+00:00"}
+{"id": "b-11602990", "type": "note", "text": "outcome: .claude\u2192.kg/.claude symlink; hooks in .claude/settings.json; MCP via .mcp.json (--scope project); three-layer isolation across global/workspace/repo; virtiofs WAL bug fixed in rebuild_all", "created_at": "2026-02-22T03:38:53.091294+00:00"}

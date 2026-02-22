@@ -1,0 +1,34 @@
+{
+  "bullets": {
+    "b-e5907f0a": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:07:30.022633+00:00"
+    },
+    "b-f3da9e44": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:07:30.024330+00:00"
+    },
+    "b-ca5edf84": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:07:30.023492+00:00"
+    },
+    "b-9890565f": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T05:51:41.346065+00:00"
+    },
+    "b-301eb848": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:07:30.025207+00:00"
+    }
+  }
+}

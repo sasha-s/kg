@@ -1,3 +1,29 @@
 {
-  "token_budget": 5733.0
+  "token_budget": 10567.0,
+  "bullets": {
+    "b-ae9c1a0b": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:45.381380+00:00"
+    },
+    "b-956a5398": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:45.383028+00:00"
+    },
+    "b-c1b6898c": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:45.384537+00:00"
+    },
+    "b-fc63f700": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T06:46:45.385919+00:00"
+    }
+  }
 }

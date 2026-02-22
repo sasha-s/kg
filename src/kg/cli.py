@@ -1241,7 +1241,7 @@ def start(scope: str) -> None:
     click.echo(f"  {marker} .claude symlink: {msg}")
 
     # 7. Agents (if enabled)
-    if cfg.agents.enabled and cfg.agents.name:
+    if cfg.agents.enabled:
         click.echo("\nStarting agent mux...")
         from kg.agents.mux import start_background
         ok, msg = start_background(cfg)
@@ -1723,9 +1723,11 @@ cli.add_command(search, name="query")
 # Agent mux subcommand group
 # ---------------------------------------------------------------------------
 
-from kg.agents.cli import mux_cli  # noqa: E402
+from kg.agents.cli import agent_run_cmd, launcher_cli, mux_cli  # noqa: E402
 
 cli.add_command(mux_cli)
+cli.add_command(launcher_cli)
+cli.add_command(agent_run_cmd, name="run")
 
 # ---------------------------------------------------------------------------
 # Entry point

@@ -164,11 +164,17 @@ class AgentsConfig:
     """[agents] section in kg.toml — agent message bus configuration."""
 
     enabled: bool = False
-    name: str = ""  # this instance's agent name (empty = not an agent)
+    name: str = ""  # fallback agent name — prefer KG_AGENT_NAME env var at launch time
     mux_url: str = "http://127.0.0.1:7346"
     mux_port: int = 7346  # port for the local mux server
-    git_sync: bool = False  # write messages/sessions to git (future)
-    worktrees: bool = False  # use --worktree for CC sessions (future)
+    max_inbox: int = 50   # max unacked normal messages per sender (0 = unlimited)
+    segment_lines: int = 500  # lines per JSONL segment file before rolling
+    git_sync: bool = False    # sync .kg/messages/ to git after each ack
+    git_repo: str = ""        # optional separate git repo for messages (recommended)
+    git_branch: str = ""      # branch to use (mandatory when git_sync=true)
+    sessions_sync: bool = False  # sync .kg/sessions/ to git after each session
+    heartbeat_timeout: int = 10  # minutes before mux marks an agent idle (0 = disabled)
+    worktrees: bool = False   # use --worktree for CC sessions (future)
 
 
 @dataclass
@@ -197,17 +203,43 @@ class KGConfig:
         return self.index_dir.parent
 
     @property
+    def _mux_user_dir(self) -> Path:
+        """User-level directory for shared mux state (~/.local/share/kg/)."""
+        import os
+        xdg = os.environ.get("XDG_DATA_HOME", "")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+        return base / "kg"
+
+    @property
     def mux_db_path(self) -> Path:
-        return self.index_dir / "mux.db"
+        """User-level mux DB — shared across all kg projects on this machine."""
+        return self._mux_user_dir / "mux.db"
 
     @property
     def mux_pid_path(self) -> Path:
-        return self.index_dir / ".mux.pid"
+        """User-level mux PID file."""
+        return self._mux_user_dir / ".mux.pid"
 
     @property
     def sessions_dir(self) -> Path:
-        """Session transcript storage — git-tracked (outside index/)."""
+        """Session transcript storage — project-local, outside index/."""
         return self.index_dir.parent / "sessions"
+
+    @property
+    def messages_dir(self) -> Path:
+        """Per-project message store — JSONL inbox files, optionally git-tracked."""
+        return self.index_dir.parent / "messages"
+
+    @property
+    def messages_db_path(self) -> Path:
+        """Project-local SQLite index of .kg/messages/ — derived, never git-tracked."""
+        return self.index_dir / "messages.db"
+
+    @property
+    def agent_name(self) -> str:
+        """Effective agent name: KG_AGENT_NAME env var takes precedence over kg.toml."""
+        import os
+        return os.environ.get("KG_AGENT_NAME", "") or self.agents.name
 
     @property
     def use_turso(self) -> bool:
@@ -329,7 +361,13 @@ def load_config(root: Path | str | None = None) -> KGConfig:
             name=str(agents_section.get("name", "")),
             mux_url=str(agents_section.get("mux_url", "http://127.0.0.1:7346")),
             mux_port=int(agents_section.get("mux_port", 7346)),
+            max_inbox=int(agents_section.get("max_inbox", 50)),
+            segment_lines=int(agents_section.get("segment_lines", 500)),
             git_sync=bool(agents_section.get("git_sync", False)),
+            git_repo=str(agents_section.get("git_repo", "")),
+            git_branch=str(agents_section.get("git_branch", "")),
+            sessions_sync=bool(agents_section.get("sessions_sync", False)),
+            heartbeat_timeout=int(agents_section.get("heartbeat_timeout", 10)),
             worktrees=bool(agents_section.get("worktrees", False)),
         ),
     )

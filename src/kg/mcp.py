@@ -201,6 +201,55 @@ def memory_review(
 
 
 # ---------------------------------------------------------------------------
+# Agent messaging tool (only registered when agents are enabled)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def send_message(
+    to_agent: Annotated[str, "Name of the recipient agent"],
+    body: Annotated[str, "Message body"],
+    urgency: Annotated[str, "Message urgency: 'normal' or 'urgent'"] = "normal",
+) -> str:
+    """Send a message to another agent via the local mux.
+
+    Requires agents.enabled = true in kg.toml and the mux to be running.
+    The sender name is taken from the KG_AGENT_NAME env var (or agents.name in kg.toml).
+    Use urgency='urgent' to interrupt the recipient at the next tool boundary.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    cfg = _cfg()
+    if not cfg.agents.enabled:
+        return "Error: agents not enabled. Add `[agents] enabled = true` to kg.toml."
+
+    sender = cfg.agent_name or "mcp"
+    norm_urgency = urgency if urgency in ("normal", "urgent") else "normal"
+    payload = json.dumps({
+        "from": sender,
+        "body": body,
+        "urgency": norm_urgency,
+        "type": "text",
+    }).encode()
+    url = f"{cfg.agents.mux_url}/agent/{to_agent}/messages"
+    req = urllib.request.Request(  # noqa: S310
+        url, data=payload, headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            result = json.loads(resp.read())
+        msg_id = result.get("id", "?")
+        return f"Sent to {to_agent} [{norm_urgency}] (id: {msg_id})"
+    except urllib.error.HTTPError as exc:
+        body_text = exc.read().decode(errors="replace")
+        return f"Error {exc.code} sending to {to_agent}: {body_text}"
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

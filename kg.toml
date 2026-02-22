@@ -39,13 +39,20 @@ exclude = [
     "**/.anchor/**",
     "**/test-ledger/**",
 ]
+use_git=true
+max_size_kb=512
 
 # [review]
-# budget_threshold = 500   # chars served before flagging a node for review (default: 500)
+# budget_threshold = 3000   # credits-per-bullet before flagging node for review (default: 3000)
 
 [embeddings]
 model = "fastembed:BAAI/bge-small-en-v1.5"
 # model = "openai:text-embedding-3-small"
+# model = "gemini:gemini-embedding-001"
+
+# [database]
+# url = ""      # libsql://... for Turso remote DB; empty = local SQLite (default)
+# token = ""    # JWT auth token (or set TURSO_URL / TURSO_TOKEN in .env)
 
 [server]
 port = 8343
@@ -53,5 +60,32 @@ vector_port = 8345
 web_port = 8347
 web_host = "0.0.0.0"
 
+# [search]
+# fts_weight = 0.5
+# vector_weight = 0.5
+# dual_match_bonus = 0.1          # bonus when a result matches both FTS and vector
+# use_reranker = true              # cross-encoder reranking pass
+# reranker_model = "Xenova/ms-marco-MiniLM-L-6-v2"
+# auto_calibrate_threshold = 0.05  # fraction of bullets changed to trigger recalibration
 
+# [hooks]
+# stop = true   # Stop hook: prompts Claude to process fleeting notes at session end (default: true)
 
+# ─── Agent Message Bus ────────────────────────────────────────────────────────
+# Enable to turn this kg instance into a named agent that can send/receive
+# messages via the local mux broker.
+#
+# Quick start:
+#   1. Set enabled = true and give this instance a name
+#   2. Run: kg mux start
+#   3. Other agents connect to mux_url and register their own names
+#   4. Send messages: kg mux send <agent-name> "hello"
+#   5. View in web UI: http://localhost:8347/agents
+#
+[agents]
+enabled = true
+# name = ""           # fallback agent name — prefer KG_AGENT_NAME env var at launch time
+# mux_url = "http://127.0.0.1:7346"   # URL agents use to reach the mux
+# mux_port = 7346     # port the mux server listens on (run on the host that owns the mux)
+# git_sync = false    # (future) write messages/sessions to git
+# worktrees = false   # (future) use --worktree for isolated Claude Code sessions per agent
