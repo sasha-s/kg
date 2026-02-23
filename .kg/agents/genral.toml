@@ -1,0 +1,5 @@
+name = "genral"
+node = "local"
+auto_start = true
+restart = "on-failure"
+wake_on_message = true

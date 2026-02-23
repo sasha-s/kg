@@ -22,18 +22,19 @@ Lifecycle:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import random
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-import sqlite3
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -88,9 +89,9 @@ class AgentDef:
         lines = [
             f'name = "{self.name}"',
             f'node = "{self.node}"',
-            f'auto_start = {str(self.auto_start).lower()}',
+            f"auto_start = {str(self.auto_start).lower()}",
             f'restart = "{self.restart}"',
-            f'wake_on_message = {str(self.wake_on_message).lower()}',
+            f"wake_on_message = {str(self.wake_on_message).lower()}",
         ]
         if self.prompt:
             lines.append(f'prompt = "{self.prompt}"')
@@ -121,7 +122,7 @@ class ManagedAgent:
 def _backoff_delay(restart_count: int, max_delay: float = 60.0) -> float:
     """Exponential backoff with ±20% jitter."""
     base = min(2.0 ** restart_count, max_delay)
-    jitter = random.uniform(-base * 0.2, base * 0.2)
+    jitter = random.uniform(-base * 0.2, base * 0.2)  # noqa: S311
     return max(1.0, base + jitter)
 
 
@@ -130,17 +131,14 @@ def _backoff_delay(restart_count: int, max_delay: float = 60.0) -> float:
 
 def _seed_kg_root_in_mux(mux_db_path: Path, agent_name: str, kg_root: Path) -> None:
     """Register agent's kg_root in mux.db so pending-count works before first session."""
-    try:
-        with sqlite3.connect(str(mux_db_path)) as conn:
-            conn.execute(
-                "INSERT INTO agents(name, status, last_seen, pid, kg_root, session_id)"
-                " VALUES(?, 'idle', datetime('now'), NULL, ?, '')"
-                " ON CONFLICT(name) DO UPDATE SET"
-                "   kg_root=COALESCE(NULLIF(excluded.kg_root,''), kg_root)",
-                (agent_name, str(kg_root)),
-            )
-    except Exception:
-        pass  # mux.db may not exist yet; it'll register on first session-start
+    with contextlib.suppress(Exception), sqlite3.connect(str(mux_db_path)) as conn:  # mux.db may not exist yet
+        conn.execute(
+            "INSERT INTO agents(name, status, last_seen, pid, kg_root, session_id)"
+            " VALUES(?, 'idle', datetime('now'), NULL, ?, '')"
+            " ON CONFLICT(name) DO UPDATE SET"
+            "   kg_root=COALESCE(NULLIF(excluded.kg_root,''), kg_root)",
+            (agent_name, str(kg_root)),
+        )
 
 
 def _has_pending_messages(mux_url: str, agent_name: str) -> bool:
@@ -433,21 +431,19 @@ class Launcher:
             ma.restart_count += 1
             ma.next_start_after = 0.0
             log.info("launched agent %s (pid %d)", defn.name, proc.pid)
-        except Exception as exc:
-            log.error("failed to launch agent %s: %s", defn.name, exc)
+        except Exception:
+            log.exception("failed to launch agent %s", defn.name)
 
     def _terminate(self, ma: ManagedAgent, timeout: float = 5.0) -> None:
         if ma.proc is None:
             return
-        try:
+        with contextlib.suppress(Exception):  # errors during termination are acceptable
             ma.proc.terminate()
             try:
                 ma.proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 ma.proc.kill()
                 ma.proc.wait()
-        except Exception:
-            pass
         ma.proc = None
 
     def _shutdown(self) -> None:
@@ -458,7 +454,7 @@ class Launcher:
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _git_pull(self) -> None:
-        try:
+        with contextlib.suppress(Exception):  # offline / no remote — continue with local files
             subprocess.run(
                 ["git", "pull", "--rebase", "--autostash"],
                 cwd=str(self.cfg.root),
@@ -466,8 +462,6 @@ class Launcher:
                 timeout=30,
                 check=False,
             )
-        except Exception:
-            pass  # offline / no remote — continue with local files
 
     def _sleep_interruptible(self, seconds: float) -> None:
         deadline = time.monotonic() + seconds
@@ -481,21 +475,19 @@ class Launcher:
 # ─── CLI-callable helpers ─────────────────────────────────────────────────────
 
 
-_LAUNCHER_PID = Path.home() / ".local" / "share" / "kg" / ".launcher.pid"
-
-
 def start_background(cfg: KGConfig, node_name: str) -> tuple[bool, str]:
-    if _LAUNCHER_PID.exists():
+    pid_path = cfg.kg_dir / ".launcher.pid"
+    if pid_path.exists():
         try:
-            pid = int(_LAUNCHER_PID.read_text().strip())
+            pid = int(pid_path.read_text().strip())
             os.kill(pid, 0)
             return True, f"launcher already running (pid {pid})"
         except (ProcessLookupError, ValueError):
-            _LAUNCHER_PID.unlink(missing_ok=True)
+            pid_path.unlink(missing_ok=True)
 
     log_path = cfg.launcher_log_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    _LAUNCHER_PID.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         [sys.executable, "-m", "kg.agents.launcher",
          "--root", str(cfg.root), "--node", node_name],
@@ -503,34 +495,36 @@ def start_background(cfg: KGConfig, node_name: str) -> tuple[bool, str]:
         stdout=log_path.open("a"),
         stderr=subprocess.STDOUT,
     )
-    _LAUNCHER_PID.write_text(str(proc.pid))
+    pid_path.write_text(str(proc.pid))
     time.sleep(0.3)
     try:
         os.kill(proc.pid, 0)
         return True, f"launcher started (pid {proc.pid}) node={node_name}"
     except ProcessLookupError:
-        _LAUNCHER_PID.unlink(missing_ok=True)
+        pid_path.unlink(missing_ok=True)
         return False, f"launcher failed to start — check {log_path}"
 
 
-def stop_background() -> tuple[bool, str]:
-    if not _LAUNCHER_PID.exists():
+def stop_background(cfg: KGConfig) -> tuple[bool, str]:
+    pid_path = cfg.kg_dir / ".launcher.pid"
+    if not pid_path.exists():
         return True, "launcher not running"
     try:
-        pid = int(_LAUNCHER_PID.read_text().strip())
+        pid = int(pid_path.read_text().strip())
         os.kill(pid, signal.SIGTERM)
-        _LAUNCHER_PID.unlink(missing_ok=True)
+        pid_path.unlink(missing_ok=True)
         return True, f"launcher stopped (pid {pid})"
     except (ProcessLookupError, ValueError):
-        _LAUNCHER_PID.unlink(missing_ok=True)
+        pid_path.unlink(missing_ok=True)
         return True, "launcher was not running (removed stale pid)"
 
 
-def launcher_status() -> str:
-    if not _LAUNCHER_PID.exists():
+def launcher_status(cfg: KGConfig) -> str:
+    pid_path = cfg.kg_dir / ".launcher.pid"
+    if not pid_path.exists():
         return "stopped"
     try:
-        pid = int(_LAUNCHER_PID.read_text().strip())
+        pid = int(pid_path.read_text().strip())
         os.kill(pid, 0)
         return f"running (pid {pid})"
     except (ProcessLookupError, ValueError):

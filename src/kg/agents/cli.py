@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import sqlite3
 import subprocess
-import sys
 import urllib.request
 from typing import TYPE_CHECKING
 
@@ -47,6 +47,7 @@ def agent_cli() -> None:
 def agent_create(name: str, node: str, auto_start: bool, restart: str, wake_on_message: bool, model: str) -> None:
     """Create a named agent (register in mux + write .toml + create KG nodes)."""
     import os
+
     from kg.agents.launcher import create_agent_def
     from kg.agents.mux import _init_db
     cfg = _load_cfg()
@@ -59,7 +60,7 @@ def agent_create(name: str, node: str, auto_start: bool, restart: str, wake_on_m
     node = node or os.environ.get("KG_NODE_NAME", "local")
 
     # Ensure mux DB exists and register the agent (with kg_root so messages work immediately)
-    cfg._mux_user_dir.mkdir(parents=True, exist_ok=True)
+    cfg.kg_dir.mkdir(parents=True, exist_ok=True)
     _init_db(cfg.mux_db_path)
     from kg.agents.mux import _upsert_agent
     with sqlite3.connect(str(cfg.mux_db_path)) as conn:
@@ -121,7 +122,7 @@ def agent_create(name: str, node: str, auto_start: bool, restart: str, wake_on_m
     else:
         click.echo(f"  Node '{memory_slug}' already exists")
 
-    click.echo(f"\nTo launch this agent:")
+    click.echo("\nTo launch this agent:")
     click.echo(f"  KG_AGENT_NAME={name} claude")
 
 
@@ -140,14 +141,12 @@ def agent_list() -> None:
     # Pending counts from project-local messages.db (if available)
     pending: dict[str, int] = {}
     if cfg.messages_db_path.exists():
-        try:
+        with contextlib.suppress(Exception):
             mconn = sqlite3.connect(str(cfg.messages_db_path))
             pending = dict(mconn.execute(
                 "SELECT to_agent, COUNT(*) FROM messages WHERE acked=0 GROUP BY to_agent"
             ).fetchall())
             mconn.close()
-        except Exception:
-            pass
 
     if not agents:
         click.echo("No agents registered. Use `kg mux agent create <name>`.")
@@ -155,7 +154,7 @@ def agent_list() -> None:
     for a in agents:
         n = pending.get(a["name"], 0)
         pstr = f"  [{n} pending]" if n else ""
-        sid = (a["session_id"] or "") if "session_id" in a.keys() else ""
+        sid = (a["session_id"] or "") if "session_id" in a else ""
         sid_str = f"  session={sid[:16]}" if sid else ""
         click.echo(
             f"  {a['name']:20} {a['status']:10} "
@@ -336,6 +335,7 @@ def launcher_start(foreground: bool, daemon: bool, poll: float) -> None:  # noqa
     Uses inotify on Linux for immediate pickup of new .kg/agents/*.toml files.
     """
     import os
+
     from kg.agents.launcher import Launcher, start_background
     cfg = _load_cfg()
     node = _node_name()
@@ -343,7 +343,7 @@ def launcher_start(foreground: bool, daemon: bool, poll: float) -> None:  # noqa
     if poll <= 0:
         poll = float(os.environ.get("KG_LAUNCHER_POLL", "30"))
     if not node or node == "local":
-        click.echo(f"Node: local  (set KG_NODE_NAME to use a different node name)")
+        click.echo("Node: local  (set KG_NODE_NAME to use a different node name)")
     else:
         click.echo(f"Node: {node}")
 
@@ -360,7 +360,7 @@ def launcher_start(foreground: bool, daemon: bool, poll: float) -> None:  # noqa
 def launcher_stop() -> None:
     """Stop the launcher."""
     from kg.agents.launcher import stop_background
-    ok, msg = stop_background()
+    ok, msg = stop_background(_load_cfg())
     click.echo(f"{'✓' if ok else '✗'} {msg}")
 
 
@@ -368,10 +368,9 @@ def launcher_stop() -> None:
 def launcher_status_cmd() -> None:
     """Show launcher status and managed agents."""
     from kg.agents.launcher import launcher_status
-    click.echo(f"Launcher: {launcher_status()}")
-    click.echo(f"Node:     {_node_name()}")
-
     cfg = _load_cfg()
+    click.echo(f"Launcher: {launcher_status(cfg)}")
+    click.echo(f"Node:     {_node_name()}")
     agents_dir = cfg.root / ".kg" / "agents"
     if not agents_dir.exists():
         click.echo("\nNo agents defined. Use `kg mux agent create <name>`.")
@@ -493,15 +492,13 @@ def agent_run_cmd(name: str, unsafe: bool, no_print: bool) -> None:
     # Load TOML for model/working_dir if available
     toml_path = cfg.root / ".kg" / "agents" / f"{name}.toml"
     if toml_path.exists():
-        try:
+        with contextlib.suppress(Exception):
             from kg.agents.launcher import AgentDef
             defn = AgentDef.from_toml(toml_path)
             if defn.model:
                 env["ANTHROPIC_MODEL"] = defn.model
             if defn.working_dir:
                 cwd = defn.working_dir
-        except Exception:
-            pass
 
     cmd = ["claude"]
     if unsafe:

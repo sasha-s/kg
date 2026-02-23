@@ -1,5 +1,5 @@
 {
-  "token_budget": 0.0,
+  "token_budget": 372000.0,
   "bullets": {
     "b-ae9c1a0b": {
       "useful": 7,
@@ -206,6 +206,6 @@
       "updated_at": "2026-02-23T06:16:32.225826+00:00"
     }
   },
-  "last_bullet_checkpoint": 0,
+  "last_bullet_checkpoint": 120,
   "last_reviewed": "2026-02-23T06:16:36.331360+00:00"
 }

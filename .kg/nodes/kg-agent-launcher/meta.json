@@ -1,10 +1,10 @@
 {
   "bullets": {
     "b-ef11b376": {
-      "useful": 13,
+      "useful": 14,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T10:03:59.325826+00:00"
+      "updated_at": "2026-02-23T19:42:29.175577+00:00"
     },
     "b-53744b25": {
       "useful": 12,
@@ -67,10 +67,10 @@
       "updated_at": "2026-02-22T10:03:56.186731+00:00"
     },
     "b-34ab8886": {
-      "useful": 3,
+      "useful": 4,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T09:15:14.685370+00:00"
+      "updated_at": "2026-02-23T19:42:29.174226+00:00"
     },
     "b-905e6c84": {
       "useful": 2,
@@ -109,7 +109,7 @@
       "updated_at": "2026-02-23T05:28:58.877034+00:00"
     }
   },
-  "token_budget": 174000.0,
-  "last_bullet_checkpoint": 45,
-  "last_reviewed": "2026-02-22T10:04:48.574244+00:00"
+  "token_budget": 0.0,
+  "last_bullet_checkpoint": 0,
+  "last_reviewed": "2026-02-23T19:43:28.717415+00:00"
 }

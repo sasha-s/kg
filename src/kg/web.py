@@ -14,7 +14,7 @@ import re
 import socketserver
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,7 +42,7 @@ def _break_sentences(text: str) -> str:
     return "".join(_SENT_RE.sub(".\n", p) if i % 2 == 0 else p for i, p in enumerate(parts))
 
 
-def _tool_summary(name: str, inp: dict) -> str:
+def _tool_summary(name: str, inp: dict) -> str:  # noqa: PLR0911
     """Return a brief summary string to show inline in a tool call header."""
     if name in ("Read", "Write", "Edit"):
         p = inp.get("file_path", "")
@@ -84,7 +84,7 @@ def _tool_summary(name: str, inp: dict) -> str:
             q0 = qs[0]
             if isinstance(q0, dict):
                 return q0.get("question", "")[:60]
-    if name in ("NotebookEdit",):
+    if name == "NotebookEdit":
         return inp.get("notebook_path", "")[:55]
     if "memory_add_bullet" in name:
         return inp.get("node_slug", "")[:50]
@@ -939,7 +939,7 @@ def _render_node_page(cfg: KGConfig, node: FileNode, slugs: set[str]) -> str:
     s = "" if bc == 1 else "s"
     created = f" · created {node.created_at[:10]}" if node.created_at else ""
     agent_link = _agent_link_for_node(cfg, node.slug, node.type)
-    back_lnk = f'<a href="/" style="font-size:12px;color:var(--mt);text-decoration:none">← all nodes</a>'
+    back_lnk = '<a href="/" style="font-size:12px;color:var(--mt);text-decoration:none">← all nodes</a>'
     body = (
         f'<div style="margin-bottom:8px">{back_lnk}</div>'
         f'<h1 style="margin-top:4px">{_html.escape(node.title)}{agent_link}</h1>'
@@ -1038,7 +1038,6 @@ def _related_html(cfg: KGConfig, node: FileNode, exclude: set[str]) -> str:
 
 def _preview_json(cfg: KGConfig, slug: str) -> str:
     """Return JSON {title, bullets} for hover preview of a node."""
-    import contextlib
     from kg.reader import FileStore
     node = FileStore(cfg.nodes_dir).get(slug)
     if node is None:
@@ -1189,10 +1188,10 @@ def _render_log_page(cfg: KGConfig, name: str, lines: int = 200) -> str:
             content = "\n".join(all_lines[-lines:])
     if not content:
         content = f"(log empty or not found: {log_path})"
-    back = f'<a href="/agents" style="font-size:12px;color:var(--mt)">← agents</a>'
+    back = '<a href="/agents" style="font-size:12px;color:var(--mt)">← agents</a>'
     # Auto-refresh every 5s
     refresh_js = (
-        '<script>setTimeout(function(){location.reload();},5000);</script>'
+        "<script>setTimeout(function(){location.reload();},5000);</script>"
     )
     body = (
         f'{back}<h1 style="margin-top:8px">{_html.escape(name)} log</h1>'
@@ -1464,10 +1463,7 @@ def _render_agents_page(cfg: KGConfig) -> str:
         ctrls = '<div class="ag-ctrls">'
         if is_archived:
             ctrls += _cbtn("unarchive", "ag-btn-unarchive", "unarchive")
-        elif ts == "paused":
-            ctrls += _cbtn("resume", "ag-btn-resume", "resume")
-            ctrls += " " + _cbtn("archive", "ag-btn-archive", "archive")
-        elif ts == "draining":
+        elif ts in {"paused", "draining"}:
             ctrls += _cbtn("resume", "ag-btn-resume", "resume")
             ctrls += " " + _cbtn("archive", "ag-btn-archive", "archive")
         else:
@@ -1494,21 +1490,21 @@ def _render_agents_page(cfg: KGConfig) -> str:
 
     # Create agent form (inline, toggled by JS)
     create_form = (
-        f'<div id="ag-create" class="ag-create-form">'
-        f'<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--mt)">New agent</div>'
-        f'<input id="ag-new-name" type="text" placeholder="Agent name (e.g. researcher)" autocomplete="off">'
-        f'<select id="ag-new-model" style="width:100%;padding:6px 8px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:5px;font-size:13px">'
-        f'<option value="">Default (claude-sonnet-4-6)</option>'
-        f'<option value="claude-sonnet-4-6">Sonnet 4.6 (claude-sonnet-4-6)</option>'
-        f'<option value="claude-opus-4-6">Opus 4.6 (claude-opus-4-6)</option>'
-        f'<option value="claude-haiku-4-5-20251001">Haiku 4.5 (claude-haiku-4-5-20251001)</option>'
-        f'</select>'
-        f'<div style="display:flex;gap:8px">'
-        f'<button onclick="window._createAgent()">Create</button>'
-        f'<button onclick="document.getElementById(\'ag-create\').style.display=\'none\'" '
-        f'style="background:transparent;border:1px solid var(--bd);color:var(--tx)">Cancel</button>'
-        f'</div>'
-        f'</div>'
+        '<div id="ag-create" class="ag-create-form">'
+        '<div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--mt)">New agent</div>'
+        '<input id="ag-new-name" type="text" placeholder="Agent name (e.g. researcher)" autocomplete="off">'
+        '<select id="ag-new-model" style="width:100%;padding:6px 8px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:5px;font-size:13px">'
+        '<option value="">Default (claude-sonnet-4-6)</option>'
+        '<option value="claude-sonnet-4-6">Sonnet 4.6 (claude-sonnet-4-6)</option>'
+        '<option value="claude-opus-4-6">Opus 4.6 (claude-opus-4-6)</option>'
+        '<option value="claude-haiku-4-5-20251001">Haiku 4.5 (claude-haiku-4-5-20251001)</option>'
+        '</select>'
+        '<div style="display:flex;gap:8px">'
+        '<button onclick="window._createAgent()">Create</button>'
+        '<button onclick="document.getElementById(\'ag-create\').style.display=\'none\'" '
+        'style="background:transparent;border:1px solid var(--bd);color:var(--tx)">Cancel</button>'
+        '</div>'
+        '</div>'
     )
 
     archived_toggle = ""
@@ -1642,7 +1638,7 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'<span><span class="ag-info-lbl">model </span><span class="ag-info-val">{model_val}</span></span>'
         + (f'<span class="ag-info-lbl">{last_seen}</span>' if last_seen else "")
         + (f'<span style="margin-left:auto">{_node_links_html}</span>' if _node_links_html else "")
-        + f'</div>'
+        + "</div>"
     )
 
     # Control buttons — use fetch() to avoid mobile "insecure form" warnings
@@ -1655,24 +1651,19 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'}};'
         f'}})();</script>'
     )
-    ctrl_btns = f'<div class="ag-ctrls" style="margin-bottom:16px">'
+    ctrl_btns = '<div class="ag-ctrls" style="margin-bottom:16px">'
     if ts == "archived":
-        ctrl_btns += f'<button class="ag-btn ag-btn-unarchive" onclick="_agCtrl(\'unarchive\')">unarchive</button>'
-    elif ts == "paused":
+        ctrl_btns += '<button class="ag-btn ag-btn-unarchive" onclick="_agCtrl(\'unarchive\')">unarchive</button>'
+    elif ts in {"paused", "draining"}:
         ctrl_btns += (
-            f'<button class="ag-btn ag-btn-resume" onclick="_agCtrl(\'resume\')">resume</button> '
-            f'<button class="ag-btn ag-btn-archive" onclick="_agCtrl(\'archive\')">archive</button>'
-        )
-    elif ts == "draining":
-        ctrl_btns += (
-            f'<button class="ag-btn ag-btn-resume" onclick="_agCtrl(\'resume\')">resume</button> '
-            f'<button class="ag-btn ag-btn-archive" onclick="_agCtrl(\'archive\')">archive</button>'
+            '<button class="ag-btn ag-btn-resume" onclick="_agCtrl(\'resume\')">resume</button> '
+            '<button class="ag-btn ag-btn-archive" onclick="_agCtrl(\'archive\')">archive</button>'
         )
     else:
         ctrl_btns += (
-            f'<button class="ag-btn ag-btn-pause" onclick="_agCtrl(\'pause\')">pause</button> '
-            f'<button class="ag-btn ag-btn-drain" onclick="_agCtrl(\'drain\')">drain</button> '
-            f'<button class="ag-btn ag-btn-archive" onclick="_agCtrl(\'archive\')">archive</button>'
+            '<button class="ag-btn ag-btn-pause" onclick="_agCtrl(\'pause\')">pause</button> '
+            '<button class="ag-btn ag-btn-drain" onclick="_agCtrl(\'drain\')">drain</button> '
+            '<button class="ag-btn ag-btn-archive" onclick="_agCtrl(\'archive\')">archive</button>'
         )
     ctrl_btns += f"</div>{_ctrl_js}"
 
@@ -1786,6 +1777,35 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'turns.insertBefore(tmp.firstChild,turns.firstChild);'
         f'}}'
         f'}});'
+        f'var _olderSkip=0;'
+        f'es.addEventListener("has-older",function(e){{'
+        f'var data;try{{data=JSON.parse(e.data);}}catch(ex){{return;}}'
+        f'_olderSkip=data.skip||50;'
+        f'_showLoadOlder(data.count);'
+        f'}});'
+        f'function _showLoadOlder(count){{'
+        f'var turns=document.getElementById("live-turns");if(!turns)return;'
+        f'var existing=document.getElementById("load-older-btn");if(existing)existing.remove();'
+        f'var btn=document.createElement("div");'
+        f'btn.id="load-older-btn";'
+        f'btn.style="text-align:center;padding:8px;color:var(--ac);cursor:pointer;font-size:12px;border-top:1px solid var(--bd);margin-top:4px";'
+        f'btn.textContent="Load "+count+" older turns";'
+        f'btn.onclick=function(){{'
+        f'btn.textContent="Loading…";'
+        f'fetch("/agent/"+agName+"/older-turns?skip="+_olderSkip)'
+        f'.then(function(r){{return r.json();}})'
+        f'.then(function(d){{'
+        f'var turns=document.getElementById("live-turns");'
+        f'(d.turns||[]).reverse().forEach(function(html){{'
+        f'var tmp=document.createElement("div");tmp.innerHTML=html;'
+        f'turns.appendChild(tmp.firstChild);'
+        f'}});'
+        f'_olderSkip+=d.turns.length;'
+        f'if(d.has_more){{btn.textContent="Load more";}}else{{btn.remove();}}'
+        f'}}).catch(function(){{btn.textContent="Load older (retry)";}});'
+        f'}};'
+        f'turns.appendChild(btn);'
+        f'}}'
         f'es.onerror=function(){{'
         f'es.close();'
         f'if(!sseOk&&!pollTid)pollTid=setInterval(refresh,12000);'
@@ -1800,7 +1820,7 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
     # Sessions list with preview — show 5 most recent, collapse the rest
     sessions_html = ""
     if sessions:
-        _SESS_SHOW = 5
+        _sess_show = 5
 
         def _session_row(sid: str, mtime: str, preview: str) -> str:
             preview_html = (
@@ -1817,8 +1837,8 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
                 f'</div>'
             )
 
-        recent = sessions[:_SESS_SHOW]
-        older = sessions[_SESS_SHOW:]
+        recent = sessions[:_sess_show]
+        older = sessions[_sess_show:]
         rows_html = "".join(_session_row(s, m, p) for s, m, p in recent)
         older_html = ""
         if older:
@@ -1917,7 +1937,7 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'</div>'
     )
 
-    back = f'<a href="/agents" style="font-size:12px;color:var(--mt)">← agents</a>'
+    back = '<a href="/agents" style="font-size:12px;color:var(--mt)">← agents</a>'
     live_dot = '<span id="live-dot" class="live-dot" style="display:none" title="Live SSE connected"></span>'
     body = (
         f"{back}<h1 style='margin-top:8px'>{live_dot}{agent_name_e}</h1>"
@@ -2248,7 +2268,7 @@ def _extract_turn_for_sse(entry: dict, slugs: set[str]) -> str | None:
         return (
             f'<div class="turn turn-assistant">'
             f'<div class="turn-label">Assistant · {_html.escape(ts)}'
-            + (f' {tools_html}' if tools_html else "")
+            + (f" {tools_html}" if tools_html else "")
             + f'</div>'
             f'<div class="turn-text">{_render(text, slugs) if text.strip() else ""}</div>'
             f'</div>'
@@ -2283,7 +2303,7 @@ def _get_live_session_path(cfg: KGConfig, agent_name: str) -> Path | None:
     return None
 
 
-def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
+def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile: Any) -> None:
     """Stream SSE events for an agent page via inotify (falls back to 1s poll).
 
     Watches:
@@ -2341,11 +2361,38 @@ def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
             last_live_path[0] = lp
             last_live_size[0] = lp.stat().st_size
 
+    # Replay recent turns so page reload doesn't lose history.
+    # Prefer live path (active session); fall back to most recent sessions_dir file.
+    # Only sends the last _REPLAY_TAIL turns; emits has-older if more exist.
+    _replay_tail = 50
+    _replay_path = last_live_path[0] or last_session_path[0]
+    with contextlib.suppress(Exception):
+        if _replay_path and _replay_path.exists():
+            with _replay_path.open("rb") as _rf:
+                _replay_bytes = _rf.read()
+            _all_turns: list[str] = []
+            for _line in _replay_bytes.decode("utf-8", errors="replace").splitlines():
+                if not _line.strip():
+                    continue
+                with contextlib.suppress(json.JSONDecodeError, Exception):
+                    _th = _extract_turn_for_sse(json.loads(_line), slugs)
+                    if _th:
+                        _all_turns.append(_th)
+            if _all_turns:
+                _send("thinking", "1")  # reveal live-feed, remove placeholder
+                _tail = _all_turns[-_replay_tail:]
+                for _th in _tail:
+                    if not _send("turn", json.dumps({"html": _th})):
+                        return
+                _older = len(_all_turns) - len(_tail)
+                if _older > 0:
+                    _send("has-older", json.dumps({"skip": _replay_tail, "count": _older}))
+
     # Initial keepalive — confirms SSE connection established
     if not _send("ping", "ok"):
         return
 
-    def _check() -> bool:
+    def _check() -> bool:  # noqa: PLR0911
         """Check for new messages / session data.
         Emits: 'thinking' + 'turn' events on session changes; 'update' on any change.
         Returns False if the SSE write failed (client disconnected)."""
@@ -2376,10 +2423,9 @@ def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
                     elif size > last_session_size[0]:
                         # Read new bytes and emit individual turns as they arrive
                         new_bytes: bytes = b""
-                        with contextlib.suppress(Exception):
-                            with open(str(latest), "rb") as f:
-                                f.seek(last_session_size[0])
-                                new_bytes = f.read()
+                        with contextlib.suppress(Exception), latest.open("rb") as f:
+                            f.seek(last_session_size[0])
+                            new_bytes = f.read()
                         last_session_size[0] = size
                         changed = True
                         if not _send("thinking", "1"):
@@ -2410,10 +2456,9 @@ def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
                         return False
                 elif size > last_live_size[0]:
                     new_bytes_live: bytes = b""
-                    with contextlib.suppress(Exception):
-                        with open(str(live_path), "rb") as f:
-                            f.seek(last_live_size[0])
-                            new_bytes_live = f.read()
+                    with contextlib.suppress(Exception), live_path.open("rb") as f:
+                        f.seek(last_live_size[0])
+                        new_bytes_live = f.read()
                     last_live_size[0] = size
                     changed = True
                     if not _send("thinking", "1"):
@@ -2464,8 +2509,8 @@ def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
             if _claude_proj.exists():
                 inotify.add_watch(str(_claude_proj), flags.CLOSE_WRITE | flags.MODIFY)
 
-        _PING_S = 25.0
-        next_ping = time.monotonic() + _PING_S
+        _ping_s = 25.0
+        next_ping = time.monotonic() + _ping_s
         try:
             while True:
                 now = time.monotonic()
@@ -2490,7 +2535,7 @@ def _stream_agent_events(cfg: KGConfig, agent_name: str, wfile) -> None:
                 if time.monotonic() >= next_ping:
                     if not _send("ping", "ok"):
                         return
-                    next_ping = time.monotonic() + _PING_S
+                    next_ping = time.monotonic() + _ping_s
         finally:
             inotify.close()
 
@@ -2574,6 +2619,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._html(_render_agent_page(self.cfg, parts[0], flash=flash))
         elif len(parts) == 2 and parts[1] == "events" and parts[0]:
             self._agent_events(parts[0])
+        elif len(parts) == 2 and parts[1] == "older-turns" and parts[0]:
+            skip = int(qs.get("skip", ["0"])[0])
+            self._agent_older_turns(parts[0], skip)
         elif len(parts) == 3 and parts[1] == "session" and parts[2]:
             self._html(_render_session_page(self.cfg, parts[0], parts[2]))
         else:
@@ -2588,6 +2636,44 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         _stream_agent_events(self.cfg, agent_name, self.wfile)
+
+    def _agent_older_turns(self, agent_name: str, skip: int) -> None:
+        """Return a batch of older turns (JSON) for lazy loading in the agent page."""
+        import contextlib
+        _batch = 50
+        slugs = _get_slugs_db(self.cfg)
+        replay_path = _get_live_session_path(self.cfg, agent_name)
+        if replay_path is None:
+            sessions_dir = self.cfg.sessions_dir / agent_name
+            with contextlib.suppress(Exception):
+                files = sorted(sessions_dir.glob("*.jsonl"), key=lambda x: x.stat().st_mtime, reverse=True)
+                if files:
+                    replay_path = files[0]
+        turns: list[str] = []
+        has_more = False
+        if replay_path and replay_path.exists():
+            with contextlib.suppress(Exception):
+                with replay_path.open("rb") as f:
+                    raw = f.read()
+                all_turns: list[str] = []
+                for line in raw.decode("utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    with contextlib.suppress(json.JSONDecodeError, Exception):
+                        th = _extract_turn_for_sse(json.loads(line), slugs)
+                        if th:
+                            all_turns.append(th)
+                # all_turns[-skip:] are already loaded; serve the batch before that
+                end = max(0, len(all_turns) - skip)
+                start = max(0, end - _batch)
+                turns = all_turns[start:end]
+                has_more = start > 0
+        body = json.dumps({"turns": turns, "has_more": has_more}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:
         import contextlib
@@ -2636,7 +2722,7 @@ class _Handler(BaseHTTPRequestHandler):
                 with contextlib.suppress(Exception):
                     from kg.agents.launcher import update_agent_def  # type: ignore[attr-defined]
                     update_agent_def(self.cfg, name, status=status_map[action])
-            self._redirect(f"/agents")
+            self._redirect("/agents")
 
         # POST /agents/create — create a new agent TOML + KG nodes + mux registration
         elif path == "/agents/create":
@@ -2675,7 +2761,9 @@ class _Handler(BaseHTTPRequestHandler):
                 # 3. Register in mux.db so pending-count queries work immediately
                 with contextlib.suppress(Exception):
                     import sqlite3 as _sql3
-                    from kg.agents.mux import _init_db as _mux_init, _upsert_agent as _mux_upsert  # type: ignore[attr-defined]
+
+                    from kg.agents.mux import _init_db as _mux_init  # type: ignore[attr-defined]
+                    from kg.agents.mux import _upsert_agent as _mux_upsert
                     _mux_init(self.cfg.mux_db_path)
                     with _sql3.connect(str(self.cfg.mux_db_path)) as _mconn:
                         _mux_upsert(_mconn, name, "idle", None, str(self.cfg.root))

@@ -165,7 +165,7 @@ class AgentsConfig:
 
     enabled: bool = False
     name: str = ""  # fallback agent name — prefer KG_AGENT_NAME env var at launch time
-    mux_url: str = "http://127.0.0.1:7346"
+    mux_url: str = ""  # inferred from mux_port if not set
     mux_port: int = 7346  # port for the local mux server
     max_inbox: int = 50   # max unacked normal messages per sender (0 = unlimited)
     segment_lines: int = 500  # lines per JSONL segment file before rolling
@@ -175,6 +175,10 @@ class AgentsConfig:
     sessions_sync: bool = False  # sync .kg/sessions/ to git after each session
     heartbeat_timeout: int = 10  # minutes before mux marks an agent idle (0 = disabled)
     worktrees: bool = False   # use --worktree for CC sessions (future)
+
+    def __post_init__(self) -> None:
+        if not self.mux_url:
+            self.mux_url = f"http://127.0.0.1:{self.mux_port}"
 
 
 @dataclass
@@ -203,22 +207,14 @@ class KGConfig:
         return self.index_dir.parent
 
     @property
-    def _mux_user_dir(self) -> Path:
-        """User-level directory for shared mux state (~/.local/share/kg/)."""
-        import os
-        xdg = os.environ.get("XDG_DATA_HOME", "")
-        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
-        return base / "kg"
-
-    @property
     def mux_db_path(self) -> Path:
-        """User-level mux DB — shared across all kg projects on this machine."""
-        return self._mux_user_dir / "mux.db"
+        """Per-instance mux DB — isolated to this kg root's .kg/ directory."""
+        return self.kg_dir / "mux.db"
 
     @property
     def mux_pid_path(self) -> Path:
-        """User-level mux PID file."""
-        return self._mux_user_dir / ".mux.pid"
+        """Per-instance mux PID file."""
+        return self.kg_dir / ".mux.pid"
 
     @property
     def sessions_dir(self) -> Path:
@@ -368,7 +364,7 @@ def load_config(root: Path | str | None = None) -> KGConfig:
         agents=AgentsConfig(
             enabled=bool(agents_section.get("enabled", False)),
             name=str(agents_section.get("name", "")),
-            mux_url=str(agents_section.get("mux_url", "http://127.0.0.1:7346")),
+            mux_url=str(agents_section.get("mux_url", "")),
             mux_port=int(agents_section.get("mux_port", 7346)),
             max_inbox=int(agents_section.get("max_inbox", 50)),
             segment_lines=int(agents_section.get("segment_lines", 500)),

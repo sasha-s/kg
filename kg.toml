@@ -84,7 +84,7 @@ web_host = "0.0.0.0"
 #
 [agents]
 enabled = true
-# mux_url = "http://127.0.0.1:7346"   # URL agents use to reach the mux
-# mux_port = 7346     # port the mux server listens on (run on the host that owns the mux)
+# mux_port = 7346     # port the mux server listens on; mux_url inferred as http://127.0.0.1:{mux_port}
+# mux_url = "http://127.0.0.1:7346"   # override if mux is on a different host
 # git_sync = false    # (future) write messages/sessions to git
 # worktrees = false   # (future) use --worktree for isolated Claude Code sessions per agent
