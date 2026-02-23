@@ -66,16 +66,22 @@ def _format_messages(messages: list[dict]) -> str:
 
 
 def _load_agent_instructions(cfg: KGConfig, name: str) -> str:
-    """Read agent-<name>-instructions bullets verbatim from the graph DB."""
+    """Read agent-<name>-mission bullets verbatim from the graph DB."""
     import sqlite3 as _sqlite3
     if not cfg.db_path.exists():
         return ""
     try:
         conn = _sqlite3.connect(str(cfg.db_path))
+        # Try -mission first, fall back to legacy -instructions slug
         rows = conn.execute(
             "SELECT text FROM bullets WHERE node_slug = ? ORDER BY rowid",
-            (f"agent-{name}-instructions",),
+            (f"agent-{name}-mission",),
         ).fetchall()
+        if not rows:
+            rows = conn.execute(
+                "SELECT text FROM bullets WHERE node_slug = ? ORDER BY rowid",
+                (f"agent-{name}-instructions",),
+            ).fetchall()
         conn.close()
         texts = [r[0] for r in rows if r[0]]
         if not texts:

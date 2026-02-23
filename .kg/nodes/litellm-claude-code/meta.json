@@ -30,5 +30,8 @@
       "used": 0,
       "updated_at": "2026-02-22T06:07:30.025207+00:00"
     }
-  }
+  },
+  "token_budget": 490.0,
+  "last_bullet_checkpoint": 0,
+  "last_reviewed": "2026-02-22T10:17:59.349363+00:00"
 }

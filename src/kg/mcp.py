@@ -249,6 +249,43 @@ def send_message(
         return f"Error: {exc}"
 
 
+@mcp.tool()
+def get_pending_messages() -> str:
+    """Fetch all pending messages for this agent from the mux (normal + urgent).
+
+    Call this before finishing to catch any messages that arrived during processing.
+    Returns a formatted string of pending messages, or 'No pending messages.' if none.
+    """
+    import json
+    import os
+    import urllib.error
+    import urllib.request
+
+    cfg = _cfg()
+    if not cfg.agents.enabled:
+        return "No pending messages."
+
+    name = cfg.agent_name or "mcp"
+    payload = json.dumps({
+        "pid": os.getpid(),
+        "kg_root": str(cfg.root),
+    }).encode()
+    url = f"{cfg.agents.mux_url}/agent/{name}/session-start"
+    req = urllib.request.Request(  # noqa: S310
+        url, data=payload, headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            result = json.loads(resp.read())
+        msgs = result.get("messages", [])
+        if not msgs:
+            return "No pending messages."
+        lines = [f"[{m['from_agent']} → {m['to_agent']}] {m['body']}" for m in msgs]
+        return "\n".join(lines)
+    except Exception as exc:
+        return f"Error: {exc}"
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------

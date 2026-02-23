@@ -236,6 +236,15 @@ class KGConfig:
         return self.index_dir / "messages.db"
 
     @property
+    def logs_dir(self) -> Path:
+        """Project-local logs directory — gitignored."""
+        return self.index_dir.parent / "logs"
+
+    @property
+    def launcher_log_path(self) -> Path:
+        return self.logs_dir / "launcher.log"
+
+    @property
     def agent_name(self) -> str:
         """Effective agent name: KG_AGENT_NAME env var takes precedence over kg.toml."""
         import os

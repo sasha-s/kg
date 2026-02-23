@@ -1,0 +1,3 @@
+{"v": 1, "slug": "_fleeting-cd2252ad-bc3", "title": "_fleeting-cd2252ad-bc3", "type": "concept", "created_at": "2026-02-22T09:04:54.439630+00:00"}
+{"id": "b-d9a818e7", "type": "note", "text": "intent: process pending agent messages as web agent \u2014 inbox check", "created_at": "2026-02-22T09:04:54.439818+00:00"}
+{"id": "b-3dbe95b1", "type": "note", "text": "outcome: inbox empty \u2014 no messages to process this session; improve-web inotify task previously queued and in-flight", "created_at": "2026-02-22T09:04:57.387850+00:00"}

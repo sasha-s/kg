@@ -1,0 +1,2 @@
+{"v": 1, "slug": "agent-test-mission", "title": "agent-test-mission", "type": "concept", "created_at": "2026-02-22T07:01:28.986799+00:00"}
+{"id": "b-d1dabc63", "type": "fact", "text": "No instructions set yet for agent 'test'. Add bullets here to define this agent's mission and standing context. These are injected verbatim at every session start.", "created_at": "2026-02-22T07:01:28.987065+00:00"}

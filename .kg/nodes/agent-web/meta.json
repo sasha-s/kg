@@ -1,0 +1,49 @@
+{
+  "bullets": {
+    "b-4440cc59": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:00:55.932382+00:00"
+    },
+    "b-a7ae1ccf": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:00:55.936374+00:00"
+    },
+    "b-63b580e7": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:00:55.940523+00:00"
+    },
+    "b-22318112": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:28:54.066005+00:00"
+    },
+    "b-c5ce5318": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:01:22.934908+00:00"
+    },
+    "b-6dad936a": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:28:54.060990+00:00"
+    },
+    "b-6ca23685": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:24:20.543940+00:00"
+    }
+  },
+  "token_budget": 3081.0,
+  "last_bullet_checkpoint": 0,
+  "last_reviewed": "2026-02-22T09:06:29.321726+00:00"
+}

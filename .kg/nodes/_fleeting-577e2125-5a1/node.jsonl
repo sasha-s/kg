@@ -56,3 +56,150 @@
 {"id": "b-3115f5f5", "type": "note", "text": "intent: complete all pending multi-agent items \u2014 launcher status field, web agents tab, MCP send_message, kg run wrapper, heartbeat timeout, inotify file watching", "created_at": "2026-02-22T06:49:00.099766+00:00"}
 {"id": "b-74d28db6", "type": "note", "text": "outcome: implemented AgentDef.status (running/paused/draining) + launcher lifecycle; kg launcher agent pause/resume/drain/migrate CLI; sessions_sync + heartbeat_timeout AgentsConfig fields; web /agents+/agent/<name> rewrites (filter, status badges, ctrl buttons, urgent send, auto-refresh, fixed messages.db queries); POST /agent/<name>/ctrl route; MCP send_message tool; kg run <name> command; launcher two-layer inotify+poll file watching with KG_LAUNCHER_POLL env; fixed cfg.agents.name\u2192cfg.agent_name bug in mux_send + kg init", "created_at": "2026-02-22T06:49:08.257717+00:00"}
 {"id": "b-5a8d730b", "type": "task", "text": "pending: sprite addressing (local:alice vs sprite:alice mux-to-mux routing); kg mux agent compact <name>; LiteLLM OAuth token persistence; KG node existence check in agent_list CLI", "status": "pending", "created_at": "2026-02-22T06:49:13.085947+00:00"}
+{"id": "b-56220f22", "type": "note", "text": "intent: answer user 'how do I use it?' question \u2014 provide kg agents getting-started guide", "created_at": "2026-02-22T06:54:14.664716+00:00"}
+{"id": "b-5f2d684d", "type": "note", "text": "outcome: provided complete quick-start guide covering kg.toml [agents] config, kg mux start -d, kg mux agent create, kg run <name>, kg launcher start, CLI shortcuts, and web UI at /agents", "created_at": "2026-02-22T06:54:15.978013+00:00"}
+{"id": "b-93d35c00", "type": "note", "text": "intent: answer 'how do I use kg agents?' + fix CLI UX for missing args", "created_at": "2026-02-22T06:58:23.878160+00:00"}
+{"id": "b-0052d751", "type": "note", "text": "outcome: provided full kg agents quick-start guide (kg.toml [agents] section, kg mux start -d, kg run <name>, launcher, web UI); added no_args_is_help=True to all kg CLI commands with required arguments", "created_at": "2026-02-22T06:58:25.516528+00:00"}
+{"id": "b-56220f22", "deleted": true}
+{"id": "b-5f2d684d", "deleted": true}
+{"id": "b-7cee4def", "type": "note", "text": "intent: fix kg CLI UX \u2014 no_args_is_help for required-arg commands, kg agent top-level alias, uv tool editable dev install", "created_at": "2026-02-22T07:02:32.063776+00:00"}
+{"id": "b-b0cacedd", "type": "note", "text": "outcome: added no_args_is_help=True to all kg commands with required args (add, show, create, update, delete, run, mux send, launcher agent pause/resume/drain/migrate, agent create/delete); added 'kg agent' as top-level CLI alias for 'kg mux agent'; answered uv tool install --editable for dev workflow", "created_at": "2026-02-22T07:02:37.184696+00:00"}
+{"id": "b-aca0a792", "type": "note", "text": "intent: fix kg agent UX \u2014 no_args_is_help CLI, kg agent top-level alias, web idle banner, send error feedback", "created_at": "2026-02-22T07:11:02.082638+00:00"}
+{"id": "b-8ca8d269", "type": "note", "text": "outcome: added no_args_is_help=True to all required-arg commands; added 'kg agent' top-level alias for 'kg mux agent'; web /agent/<name> shows idle banner with kg run <name> when no session running; POST /agent/<name>/message now shows ok/error flash instead of silently suppressing mux failures", "created_at": "2026-02-22T07:11:07.054001+00:00"}
+{"id": "b-1e51e69b", "type": "note", "text": "intent: fix CLI UX (no_args_is_help, kg agent alias), web idle banner + send feedback, explain agent wake-on-message flow", "created_at": "2026-02-22T07:13:56.295005+00:00"}
+{"id": "b-3ffa7b5f", "type": "note", "text": "outcome: no_args_is_help=True on all required-arg commands; kg agent top-level alias; web idle banner + ok/error flash; clarified launcher must be running for wake_on_message; launcher=headless subproc, kg run=interactive terminal", "created_at": "2026-02-22T07:13:59.715218+00:00"}
+{"id": "b-408f466e", "type": "note", "text": "intent: fix kg CLI UX (no_args_is_help, kg agent alias), web idle banner + send feedback, fix launcher wake_on_message to handle urgent messages", "created_at": "2026-02-22T07:17:56.653895+00:00"}
+{"id": "b-8eb923bd", "type": "note", "text": "outcome: (1) no_args_is_help=True on all required-arg commands; (2) kg agent top-level alias; (3) web agent page: idle banner, ok/error send flash, always-urgent chat, 8s auto-refresh for all states; (4) mux /pending-count endpoint (non-destructive, normal+urgent); (5) launcher uses /pending-count instead of side-effectful /pending", "created_at": "2026-02-22T07:18:02.189711+00:00"}
+{"id": "b-c9ec2b44", "type": "gotcha", "text": "gotcha: GET /pending is destructive (marks normal_delivered) \u2014 was being used as wake check, which accidentally consumed messages before the session started. Fixed by adding /pending-count endpoint.", "created_at": "2026-02-22T07:18:06.597749+00:00"}
+{"id": "b-aca0a792", "deleted": true}
+{"id": "b-8ca8d269", "deleted": true}
+{"id": "b-1e51e69b", "deleted": true}
+{"id": "b-3ffa7b5f", "deleted": true}
+{"id": "b-408f466e", "deleted": true}
+{"id": "b-8eb923bd", "deleted": true}
+{"id": "b-c9ec2b44", "deleted": true}
+{"id": "b-cd43d1b5", "type": "note", "text": "intent: fix kg agent UX \u2014 no_args_is_help CLI, kg agent alias, web chat always-urgent, fix launcher /pending-count bug", "created_at": "2026-02-22T07:20:55.584253+00:00"}
+{"id": "b-6546bb2e", "type": "note", "text": "outcome: no_args_is_help=True on all required-arg commands; kg agent top-level alias; web idle banner + ok/error flash; chat always-urgent (no checkbox); /pending-count endpoint (non-destructive, normal+urgent); launcher wake uses /pending-count; auto-refresh always-on; mux/launcher start has no -d flag (default=background)", "created_at": "2026-02-22T07:20:56.144102+00:00"}
+{"id": "b-bc2a4a1b", "type": "gotcha", "text": "gotcha: GET /pending was destructive AND missed urgent messages \u2014 caused launcher to accidentally consume messages before session started. Fixed with /pending-count.", "created_at": "2026-02-22T07:20:56.694867+00:00"}
+{"id": "b-93d35c00", "deleted": true}
+{"id": "b-0052d751", "deleted": true}
+{"id": "b-7cee4def", "deleted": true}
+{"id": "b-b0cacedd", "deleted": true}
+{"id": "b-cd43d1b5", "deleted": true}
+{"id": "b-6546bb2e", "deleted": true}
+{"id": "b-bc2a4a1b", "deleted": true}
+{"id": "b-89a259ff", "type": "note", "text": "intent: fix kg agent CLI UX \u2014 no_args_is_help, kg agent top-level alias, web chat always-urgent, /pending-count bug, -d flag, chat \u2192 button", "created_at": "2026-02-22T07:25:21.265613+00:00"}
+{"id": "b-2a77f48d", "type": "note", "text": "outcome: no_args_is_help=True on all required-arg commands; kg agent alias; web idle banner + ok/error flash; chat always urgent (hidden field); /pending-count endpoint non-destructive normal+urgent; launcher wake uses /pending-count; auto-refresh always-on; -d/--daemon alias added to mux+launcher start; chat\u2192 button on agent cards", "created_at": "2026-02-22T07:25:21.822005+00:00"}
+{"id": "b-27de48df", "deleted": true}
+{"id": "b-9c8193c6", "deleted": true}
+{"id": "b-67a48f0b", "deleted": true}
+{"id": "b-a632e241", "deleted": true}
+{"id": "b-3115f5f5", "deleted": true}
+{"id": "b-74d28db6", "deleted": true}
+{"id": "b-89a259ff", "deleted": true}
+{"id": "b-2a77f48d", "deleted": true}
+{"id": "b-5a8d730b", "deleted": true}
+{"id": "b-4cb2d19a", "type": "note", "text": "intent: continue previous session \u2014 implement kg agent launcher (per-node process supervisor for claude CLI agents)", "created_at": "2026-02-22T07:30:47.194285+00:00"}
+{"id": "b-f368ae52", "type": "note", "text": "outcome: found launcher already fully implemented (launcher.py with inotify, AgentDef.status, pause/drain/resume/migrate, sessions_sync, web ctrl route, /pending-count, MCP send_message, kg run alias, no_args_is_help). Two items remain blocked by write permissions: config.py node field and cli.py WHERE acked=0 fix.", "created_at": "2026-02-22T07:30:52.769697+00:00"}
+{"id": "b-f12ffb94", "type": "task", "text": "pending: (1) add node field to AgentsConfig + node_name/agents_dir/launcher_pid_path properties to KGConfig in config.py; (2) fix cli.py agent_list SQL WHERE acked=0 \u2192 remove clause", "status": "pending", "created_at": "2026-02-22T07:30:56.978004+00:00"}
+{"id": "b-c4540011", "type": "note", "text": "intent: fix kg agent create/mux/web UX so web UI chat actually works end-to-end", "created_at": "2026-02-22T07:33:06.155184+00:00"}
+{"id": "b-bc245821", "type": "note", "text": "outcome: fixed kg agent create (now sets kg_root so messages work immediately); added /pending-count non-destructive endpoint; launcher wake_on_message now uses /pending-count (was destructive /pending, missed urgent); web chat always urgent (removed checkbox); auto-refresh always on; 'chat \u2192' button on agents list; added -d/--daemon flag; 'kg agent' top-level alias; fixed two-venv mux conflict gotcha", "created_at": "2026-02-22T07:33:12.744704+00:00"}
+{"id": "b-90d4032a", "type": "gotcha", "text": "gotcha: uv run kg vs kg (uv tool) spawn separate mux processes on same port \u2014 only first wins, other silently fails. Agent wasn't responding because old mux process (started pre-code-change) was serving on 7346. Always use 'kg' consistently, kill stale pids.", "created_at": "2026-02-22T07:33:18.360592+00:00"}
+{"id": "b-49904e39", "type": "note", "text": "intent: wire up kg agent system end-to-end: CLI UX, web chat, launcher wake-on-message, log persistence", "created_at": "2026-02-22T07:41:37.152208+00:00"}
+{"id": "b-0774826a", "type": "note", "text": "outcome: fixed CLAUDECODE nested session crash, pending-count endpoint, inotify message wake, project-local logs, web chat always-urgent, .gitignore", "created_at": "2026-02-22T07:41:40.817834+00:00"}
+{"id": "b-f18afd34", "type": "gotcha", "text": "gotcha: mux and launcher must be started via same kg binary (uv tool) \u2014 different Python envs cause port conflicts and stale code", "created_at": "2026-02-22T07:41:42.371066+00:00"}
+{"id": "b-4cb2d19a", "deleted": true}
+{"id": "b-f368ae52", "deleted": true}
+{"id": "b-f12ffb94", "deleted": true}
+{"id": "b-c4540011", "deleted": true}
+{"id": "b-bc245821", "deleted": true}
+{"id": "b-90d4032a", "deleted": true}
+{"id": "b-49904e39", "deleted": true}
+{"id": "b-0774826a", "deleted": true}
+{"id": "b-f18afd34", "deleted": true}
+{"id": "b-170222ac", "type": "note", "text": "intent: wire kg agent system end-to-end \u2014 CLI UX, web chat, launcher wake-on-message, log persistence, hook installation", "created_at": "2026-02-22T07:50:39.736589+00:00"}
+{"id": "b-2aacbc3f", "type": "note", "text": "outcome: agent chat loop nearly working \u2014 fixes in this session: CLAUDECODE crash, --print headless mode, project-local hooks, pending-count endpoint, inotify wake, .gitignore, web chat UX (urgent, Enter-to-send, idle banner, log viewer). Remaining bugs: (1) mux _handle_send uses recip kg_root \u2014 agent replies to 'web' fail 404; (2) default prompt needs to mention === AGENT MESSAGES === format; (3) restart=always + auto_start=true causes spurious launches", "created_at": "2026-02-22T07:50:45.759798+00:00", "updated_at": "2026-02-22T08:02:01.250384+00:00"}
+{"id": "b-b5691781", "type": "gotcha", "text": "gotcha: launcher MUST be started via same kg binary (uv tool) that will manage agents \u2014 mixing 'uv run kg' and 'kg' spawns agents under different Python envs causing hook mismatch and stale code", "created_at": "2026-02-22T07:50:51.499934+00:00"}
+{"id": "b-ddb7c9c8", "type": "task", "text": "pending: verify agent actually sends reply via send_message MCP tool after receiving urgent web chat message", "status": "pending", "created_at": "2026-02-22T07:50:57.854999+00:00"}
+{"id": "b-3ce75793", "type": "gotcha", "text": "found: mux _handle_send uses RECIPIENT kg_root \u2014 replies to 'web' fail 404 because web is not a registered agent; fix: use sender_root OR recip_root (sender's root used first)", "created_at": "2026-02-22T08:00:29.370163+00:00"}
+{"id": "b-89dd85b2", "type": "gotcha", "text": "found: agent session 2407f7d1 launched with _DEFAULT_PROMPT but received no messages at SessionStart (messages arrived AFTER session start at 07:48 and 07:51, session started 07:47); agent searched KG graph for pending messages instead of waiting for heartbeat injection", "created_at": "2026-02-22T08:00:35.050852+00:00"}
+{"id": "b-0123919c", "type": "fact", "text": "confirmed: send_message MCP tool exists in src/kg/mcp.py and is registered via kg serve when agents.enabled=true \u2014 available to agent via .mcp.json", "created_at": "2026-02-22T08:00:38.449098+00:00"}
+{"id": "b-3ce75793", "deleted": true}
+{"id": "b-89dd85b2", "deleted": true}
+{"id": "b-0123919c", "deleted": true}
+{"id": "b-ddb7c9c8", "deleted": true}
+{"id": "b-51051faf", "type": "task", "text": "pending: fix mux _handle_send to use sender_root OR recip_root (PR not applied \u2014 session ended before code edit approved); fix default prompt to mention message format; change test agent to restart=on-failure + auto_start=false", "status": "pending", "created_at": "2026-02-22T08:02:08.180115+00:00"}
+{"id": "b-51051faf", "deleted": true}
+{"id": "b-2aacbc3f", "deleted": true}
+{"id": "b-bc1244ce", "type": "note", "text": "outcome: end-to-end agent chat verified working (rc=0, agent replied to 4 messages). Fixed: auto-register sender in _handle_send, acked column in messages.db, TOML-only filter for web agents list, session_id column in agents table. Remaining: restart=on-failure for test agent, default prompt format docs.", "created_at": "2026-02-22T08:18:56.622748+00:00"}
+{"id": "b-940b4010", "type": "task", "text": "pending: change test.toml to restart=on-failure so agent only runs when there is work; update default agent prompt to explain reply format.", "status": "pending", "created_at": "2026-02-22T08:19:00.530651+00:00"}
+{"id": "b-b1fc450c", "type": "note", "text": "intent: debug and fix kg agent mux end-to-end \u2014 web chat, message delivery, ack semantics, pseudo-agent leakage, session_id display", "created_at": "2026-02-22T08:31:28.973749+00:00"}
+{"id": "b-650a324a", "type": "note", "text": "outcome: agent (test) successfully receives and replies to messages; fixed: (1) auto-register sender in _handle_send, (2) acked column in messages.db + pending count fix, (3) urgent_session_delivered to prevent Stop from acking heartbeat-delivered unprocessed messages, (4) get_pending_messages() MCP tool, (5) TOML-only filter hides 'web' pseudo-agent, (6) session_id in mux.db agents + kg agent list", "created_at": "2026-02-22T08:31:34.767250+00:00"}
+{"id": "b-6f095e4b", "type": "gotcha", "text": "gotcha: 'web' pseudo-agent appeared in agents list because test agent got 404 on reply to 'web' and ran 'kg agent create web' from the error message \u2014 auto-register sender fix prevents this", "created_at": "2026-02-22T08:31:38.344566+00:00"}
+{"id": "b-070351b0", "type": "task", "text": "pending: change test.toml restart to on-failure (not always); investigate why launcher shows 'web' [4 pending] in agent list \u2014 those are test\u2192web reply messages that web UI never acks", "status": "pending", "created_at": "2026-02-22T08:31:43.360148+00:00"}
+{"id": "b-170222ac", "deleted": true}
+{"id": "b-b5691781", "deleted": true}
+{"id": "b-bc1244ce", "deleted": true}
+{"id": "b-940b4010", "deleted": true}
+{"id": "b-b1fc450c", "deleted": true}
+{"id": "b-6f095e4b", "deleted": true}
+{"id": "b-070351b0", "deleted": true}
+{"id": "b-b63b00cb", "type": "note", "text": "intent: debug agent message delivery race conditions and add session continuity via --resume", "created_at": "2026-02-22T08:34:50.496252+00:00"}
+{"id": "b-9274232b", "type": "note", "text": "outcome: agent replies now work end-to-end. Fixed: (1) urgent_session_delivered prevents Stop acking unprocessed heartbeat msgs, (2) auto-register sender, (3) get_pending_messages() MCP tool + updated default prompt, (4) TOML-only agent list filter, (5) session_id stored in mux.db, (6) launcher uses --resume --fork-session for session continuity", "created_at": "2026-02-22T08:34:55.361901+00:00"}
+{"id": "b-f685a00f", "type": "gotcha", "text": "gotcha: message arrived after SessionStart \u2192 heartbeat delivered it \u2192 agent concluded 'no pending' from stale JSONL check \u2192 Stop acked it unprocessed. Fix: get_pending_messages() + urgent_session_delivered field.", "created_at": "2026-02-22T08:34:59.985431+00:00"}
+{"id": "b-650a324a", "deleted": true}
+{"id": "b-180cdf1e", "type": "note", "text": "intent: debug agent message delivery failures + add session continuity; fix launcher backoff accumulation", "created_at": "2026-02-22T08:41:51.179459+00:00"}
+{"id": "b-a8dc8fac", "type": "note", "text": "outcome: full end-to-end agent chat working. Key fixes: urgent_session_delivered prevents spurious acks; get_pending_messages() MCP tool; --resume --fork-session for continuity; rc=0 resets backoff; TOML-only web agent list; auto-register sender; session_id in mux DB", "created_at": "2026-02-22T08:41:51.804999+00:00"}
+{"id": "b-b63b00cb", "deleted": true}
+{"id": "b-9274232b", "deleted": true}
+{"id": "b-f685a00f", "deleted": true}
+{"id": "b-84756659", "type": "gotcha", "text": "gotcha: heartbeat sets urgent_delivered but Stop hook must not ack past urgent_session_delivered \u2014 otherwise messages delivered mid-session but not processed get silently lost", "created_at": "2026-02-22T08:51:48.426604+00:00"}
+{"id": "b-fcc4ab4b", "type": "gotcha", "text": "gotcha: restart_count accumulates across rc=0 exits causing wake_on_message to block on growing backoff \u2014 must reset to 0 on clean exit", "created_at": "2026-02-22T08:51:49.057433+00:00"}
+{"id": "b-84756659", "deleted": true}
+{"id": "b-fcc4ab4b", "deleted": true}
+{"id": "b-2519f6d6", "type": "note", "text": "intent: debug agent message delivery failures, fix ack race conditions, add session continuity via --resume", "created_at": "2026-02-22T09:34:11.947645+00:00"}
+{"id": "b-c22137db", "type": "note", "text": "outcome: urgent_session_delivered prevents spurious Stop acks; get_pending_messages() MCP tool added; launcher uses --resume only (no --fork-session, caused duplicates); rc=0 resets backoff; kg web --dev added; TOML-only agent list; auto-register sender in mux", "created_at": "2026-02-22T09:34:16.520069+00:00", "updated_at": "2026-02-22T09:43:47.507449+00:00"}
+{"id": "b-180cdf1e", "deleted": true}
+{"id": "b-a8dc8fac", "deleted": true}
+{"id": "b-57285d51", "type": "fact", "text": "urgent_session_delivered ack field: only updated by session-start/get_pending_messages, NOT heartbeat \u2014 Stop hook uses this to prevent spurious acks of heartbeat-delivered-but-unprocessed urgent messages", "created_at": "2026-02-22T09:41:22.859896+00:00"}
+{"id": "b-71455211", "type": "fact", "text": "messages.db acked column: added to messages table; Stop hook calls _ack_messages_in_db() after writing ack files; pending counts use WHERE acked=0", "created_at": "2026-02-22T09:41:23.498719+00:00"}
+{"id": "b-a3d7db8e", "type": "fact", "text": "get_pending_messages() MCP tool: calls /agent/{name}/session-start to fetch all unacked; also advances urgent_session_delivered so Stop acks correctly", "created_at": "2026-02-22T09:41:24.193554+00:00"}
+{"id": "b-a2f9243f", "type": "fact", "text": "launcher --resume: uses --resume <prev_session_id> --print <prompt> for session continuity; no --fork-session (caused duplicate messages)", "created_at": "2026-02-22T09:41:24.832053+00:00"}
+{"id": "b-76b6ae4a", "type": "fact", "text": "rc=0 backoff reset: restart_count and next_start_after reset to 0 on clean (rc=0) exit so wake_on_message works immediately without backoff delay", "created_at": "2026-02-22T09:41:25.470232+00:00"}
+{"id": "b-0ac52a07", "type": "fact", "text": "kg web --dev: inotify_simple watches src/kg/**/*.py, restarts server subprocess on .py changes with fallback to 1s mtime polling", "created_at": "2026-02-22T09:41:26.103889+00:00"}
+{"id": "b-d1cb9de7", "type": "fact", "text": "TOML-only agent filter: web UI only shows agents with .kg/agents/<name>.toml file, filtering pseudo-agents like 'web'", "created_at": "2026-02-22T09:41:26.742915+00:00"}
+{"id": "b-ffba36f4", "type": "fact", "text": "auto-register sender: _handle_send() registers from_name with to_agent's kg_root if sender not already in mux.db", "created_at": "2026-02-22T09:41:27.393728+00:00"}
+{"id": "b-dc5c0bf7", "type": "fact", "text": "bidirectional message display: _mux_agent_messages uses WHERE to_agent=X OR from_agent=X \u2014 same message appears in both sender's and recipient's chat view by design", "created_at": "2026-02-22T09:41:28.039312+00:00"}
+{"id": "b-c9b3063e", "type": "fact", "text": "mux.db session_id column: added to agents table; launcher stores prev session_id; _get_prev_session_id() reads it for --resume", "created_at": "2026-02-22T09:41:28.680014+00:00"}
+{"id": "b-57285d51", "deleted": true}
+{"id": "b-71455211", "deleted": true}
+{"id": "b-a3d7db8e", "deleted": true}
+{"id": "b-a2f9243f", "deleted": true}
+{"id": "b-76b6ae4a", "deleted": true}
+{"id": "b-0ac52a07", "deleted": true}
+{"id": "b-d1cb9de7", "deleted": true}
+{"id": "b-ffba36f4", "deleted": true}
+{"id": "b-dc5c0bf7", "deleted": true}
+{"id": "b-c9b3063e", "deleted": true}
+{"id": "b-fe71c67a", "type": "task", "text": "pending: mux send needs sender kg_root as fallback for agent\u2192web replies when web not in mux.db; fix requires adding kg_root to send_message payload and _handle_send auto-register recipient", "status": "pending", "created_at": "2026-02-22T09:43:51.659503+00:00"}
+{"id": "b-a7af93af", "type": "gotcha", "text": "debug: improve-web acked-without-reply \u2014 agent called get_pending_messages(), received urgent msg, was killed by SIGTERM (launcher restart) before replying. Stop hook ran, acked urgent_session_delivered. Next launch found 0 pending, stopped without replying. Message is lost. Resend required.", "created_at": "2026-02-22T09:58:43.471270+00:00"}
+{"id": "b-3f70f207", "type": "fact", "text": "fix: mux _handle_send now falls back to sender's kg_root when recipient has no kg_root \u2014 auto-registers recipient with sender's kg_root. Prevents 404 when agent replies to 'web' on fresh mux", "created_at": "2026-02-22T09:58:48.170423+00:00"}
+{"id": "b-2ed8d25f", "type": "decision", "text": "fix: test.toml restart='on-failure' (not 'always') \u2014 prevents 1-second loop on clean rc=0 exit when agent finishes processing. Combined with wake_on_message=true: agent only runs when messages exist.", "created_at": "2026-02-22T09:58:54.889022+00:00"}
+{"id": "b-2d3f8797", "type": "gotcha", "text": "debug: session file confusion \u2014 --resume <id> creates a NEW transcript file (new UUID) that forks from the resumed session, with the resumed session's ID in the system entry. Both files exist in ~/.claude/projects/. Stop hook archives the new fork's file, not the original.", "created_at": "2026-02-22T09:59:00.336487+00:00"}
+{"id": "b-9a8b0cad", "type": "fact", "text": "fix: default agent prompt updated \u2014 now explicitly says 'read from_agent field in each message and use it as to_agent in send_message()'. Clarifies reply mechanics for agents.", "created_at": "2026-02-22T09:59:05.072076+00:00"}
+{"id": "b-fe71c67a", "deleted": true}
+{"id": "b-a7af93af", "deleted": true}
+{"id": "b-3f70f207", "deleted": true}
+{"id": "b-2ed8d25f", "deleted": true}
+{"id": "b-2d3f8797", "deleted": true}
+{"id": "b-9a8b0cad", "deleted": true}
+{"id": "b-cd18720c", "type": "note", "text": "intent: debug improve-web idle/unanswered message; fix mux agent\u2192web reply routing; fix test.toml restart loop; restart mux+launcher", "created_at": "2026-02-22T10:00:47.476609+00:00"}
+{"id": "b-2b44a603", "type": "note", "text": "outcome: root cause found (acked-without-reply when SIGTERM kills agent mid-processing); mux sender kg_root fallback implemented; test.toml changed to restart=on-failure; default prompt clarified; mux+launcher restarted; improve-web message was lost (resend needed)", "created_at": "2026-02-22T10:00:53.013098+00:00"}
+{"id": "b-284438c8", "type": "gotcha", "text": "gotcha: acked-without-reply is structural \u2014 no easy fix without tracking per-message reply state. Current design: stop hook acks urgent_session_delivered regardless of whether agent replied. Could be mitigated by having agent explicitly 'nack' or by not auto-acking in Stop if no send_message was called.", "created_at": "2026-02-22T10:00:58.237991+00:00"}
+{"id": "b-36237b33", "type": "note", "text": "intent: debug improve-web idle/unanswered message; fix mux ack gap; fix test.toml restart loop", "created_at": "2026-02-22T10:04:51.611246+00:00"}
+{"id": "b-016b46b6", "type": "note", "text": "outcome: root cause = acked-without-reply (SIGTERM kills agent after get_pending_messages sets urgent_session_delivered but before send_message); fixed with implicit-ack-on-reply in _handle_send; stop hook no longer acks urgents; sender kg_root fallback added; test.toml restart=on-failure", "created_at": "2026-02-22T10:04:54.655820+00:00"}
+{"id": "b-f453d7af", "type": "gotcha", "text": "gotcha: improve-web 'Hmm u should not hardcode paths' message was permanently lost \u2014 acked by stop hook during launcher restart, next session saw 0 pending. Resend needed.", "created_at": "2026-02-22T10:04:57.613634+00:00"}
+{"id": "b-2519f6d6", "deleted": true}
+{"id": "b-c22137db", "deleted": true}
+{"id": "b-cd18720c", "deleted": true}
+{"id": "b-2b44a603", "deleted": true}

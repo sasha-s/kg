@@ -1,0 +1,39 @@
+{"v": 1, "slug": "_fleeting-ca2867f2-6c6", "title": "_fleeting-ca2867f2-6c6", "type": "concept", "created_at": "2026-02-22T09:35:59.574097+00:00"}
+{"id": "b-bfe490ce", "type": "note", "text": "intent: continue improve-web agent work \u2014 session page improvements, live streaming, instructions\u2192mission rename", "created_at": "2026-02-22T09:35:59.574351+00:00"}
+{"id": "b-523b8234", "type": "note", "text": "outcome: shipped rounds 5+6: session page now shows tool results inline + thinking blocks + visual distinction; live streaming via _get_live_session_path() from mux DB session_id; Path TYPE_CHECKING gotcha fixed; -instructions\u2192-mission rename complete (dirs, node.jsonl, hooks.py, cli.py)", "created_at": "2026-02-22T09:36:00.219666+00:00"}
+{"id": "b-0ff332f7", "type": "gotcha", "text": "gotcha: Path only under TYPE_CHECKING in web.py \u2014 runtime Path.home() fails with NameError silently suppressed; must import locally as '_Path'", "created_at": "2026-02-22T09:36:00.857150+00:00"}
+{"id": "b-0ff332f7", "deleted": true}
+{"id": "b-8a266e2c", "type": "gotcha", "text": "gotcha: Path TYPE_CHECKING-only in web.py \u2014 runtime Path.home() calls crash silently inside contextlib.suppress(Exception). Fix: from pathlib import Path as _Path inside function body.", "created_at": "2026-02-22T10:17:19.263284+00:00"}
+{"id": "b-70e7edac", "type": "note", "text": "intent: continue improve-web work \u2014 session page improvements, live streaming, agent management UI", "created_at": "2026-02-22T10:22:09.626787+00:00"}
+{"id": "b-476de7d6", "type": "note", "text": "outcome: shipped rounds 5\u20137: session page with inline tool results + thinking blocks (round 5); live streaming via _get_live_session_path() + inotify MODIFY on ~/.claude/projects/ + Path TYPE_CHECKING bug fix (round 6); agent archiving (status=archived in TOML) + create agent from web UI (round 7)", "created_at": "2026-02-22T10:22:14.438576+00:00"}
+{"id": "b-bfe490ce", "deleted": true}
+{"id": "b-523b8234", "deleted": true}
+{"id": "b-8a266e2c", "deleted": true}
+{"id": "b-0cb2b5c7", "type": "gotcha", "text": "gotcha: Path in web.py is TYPE_CHECKING-only import \u2014 runtime NameError silently swallowed by contextlib.suppress; must use local 'from pathlib import Path as _Path'", "created_at": "2026-02-22T11:10:04.561923+00:00"}
+{"id": "b-37808013", "type": "gotcha", "text": "_get_slugs_db() reads from graph.db \u2014 new nodes created outside kg CLI (e.g. by agents writing node.jsonl files directly) won't appear in web UI until kg reindex runs", "created_at": "2026-02-22T11:15:23.274262+00:00"}
+{"id": "b-5225621d", "type": "note", "text": "when KG/mission links don't appear on agent cards, check if agent nodes are indexed: sqlite3 .kg/index/graph.db 'SELECT slug FROM nodes WHERE slug LIKE \"agent-%\"'", "created_at": "2026-02-22T11:15:25.311718+00:00"}
+{"id": "b-0a196f28", "type": "note", "text": "web server was running fine in --dev mode (restarted after code changes at 03:06, started at 03:09) \u2014 the issue was not the server but missing index entries for new nodes", "created_at": "2026-02-22T11:15:27.489103+00:00"}
+{"id": "b-d0bafb6c", "type": "note", "text": "root cause of agent couldn't see UI changes: 7 agent nodes (agent-web, agent-web-mission, agent-improve-web, agent-improve-web-mission, agent-test, agent-test-mission, agent-delegation) were not in graph.db index after being created as directories with node.jsonl files", "created_at": "2026-02-22T11:15:31.342787+00:00"}
+{"id": "b-37808013", "deleted": true}
+{"id": "b-5225621d", "deleted": true}
+{"id": "b-b2521d4a", "type": "note", "text": "intent: diagnose why web agent couldn't see Round 8 UI navigation improvements", "created_at": "2026-02-22T11:15:50.958541+00:00"}
+{"id": "b-663b8e8b", "type": "note", "text": "outcome: root cause was new agent nodes not indexed in graph.db; ran kg reindex to fix; all 7 agent nodes now indexed and KG/mission links visible", "created_at": "2026-02-22T11:15:52.305140+00:00"}
+{"id": "b-eb8f1f7c", "type": "gotcha", "text": "gotcha: _get_slugs_db() uses graph.db which doesn't auto-update when node.jsonl files are created \u2014 must run kg reindex", "created_at": "2026-02-22T11:15:53.434389+00:00"}
+{"id": "b-097e404e", "type": "task", "text": "pending: web agent reports navigation features not visible \u2014 need to make KG nodes bar a dedicated section (move out of info_bar), increase font size, investigate thinking indicator visibility", "status": "pending", "created_at": "2026-02-22T11:23:40.746912+00:00"}
+{"id": "b-097e404e", "deleted": true}
+{"id": "b-2c17701e", "type": "task", "text": "pending: thinking indicators only show during active sessions \u2014 web agent needs to watch /agent/improve-web WHILE session is running. Next: show live-feed placeholder when idle so UX is clear; also update current_state bullet in agent-improve-web", "status": "pending", "created_at": "2026-02-22T11:25:23.181645+00:00"}
+{"id": "b-56eaa053", "type": "gotcha", "text": "watcher version mismatch: system kg (~/.local/share/uv/tools/kg/) had old file_indexer.py that failed with sqlite3.OperationalError SQL logic error on DELETE against new schema \u2014 caused new agent nodes to not get indexed even when watcher appeared running", "created_at": "2026-02-22T11:27:48.868041+00:00"}
+{"id": "b-d6dd1024", "type": "success", "text": "fix: ran .venv/bin/kg reindex (dev version) to rebuild graph.db from scratch with correct schema, then .venv/bin/kg start to restart watcher using dev binary \u2014 all 7 agent nodes then appeared indexed", "created_at": "2026-02-22T11:27:53.090351+00:00"}
+{"id": "b-058b2253", "type": "fact", "text": "create agent form: model input changed from free text to <select> dropdown with options: Default (claude-sonnet-4-6), Sonnet 4.6 (claude-sonnet-4-6), Opus 4.6 (claude-opus-4-6), Haiku 4.5 (claude-haiku-4-5)", "created_at": "2026-02-22T11:27:57.407659+00:00"}
+{"id": "b-0cb2b5c7", "deleted": true}
+{"id": "b-37808013", "deleted": true}
+{"id": "b-5225621d", "deleted": true}
+{"id": "b-eb8f1f7c", "deleted": true}
+{"id": "b-d0bafb6c", "deleted": true}
+{"id": "b-0a196f28", "deleted": true}
+{"id": "b-663b8e8b", "deleted": true}
+{"id": "b-56eaa053", "deleted": true}
+{"id": "b-d6dd1024", "deleted": true}
+{"id": "b-058b2253", "deleted": true}
+{"id": "b-14f01bf5", "type": "note", "text": "intent: diagnose why web agent couldn't see UI changes; fix indexing; add model dropdown to create-agent form", "created_at": "2026-02-22T11:28:49.130219+00:00"}
+{"id": "b-a9803754", "type": "note", "text": "outcome: found watcher stopped + system/dev kg version mismatch causing SQL errors; ran kg reindex + kg start; replaced model text input with <select> dropdown", "created_at": "2026-02-22T11:28:54.941031+00:00"}

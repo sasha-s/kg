@@ -33,6 +33,7 @@ import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+import sqlite3
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -55,6 +56,17 @@ class AgentDef:
     model: str = ""
     working_dir: str = ""
     status: str = "running"        # running | paused | draining
+    prompt: str = ""               # startup prompt for --print mode (headless)
+
+    _DEFAULT_PROMPT = (
+        "You are an autonomous agent. Your job is to process pending messages and reply.\n"
+        "1. Call get_pending_messages() to fetch all pending messages.\n"
+        "2. For EACH message: read it carefully, then reply using:\n"
+        "     send_message(to_agent='<from_agent value>', body='<your reply>')\n"
+        "   The from_agent field in each message tells you who to reply to.\n"
+        "3. Call get_pending_messages() once more to catch any last arrivals.\n"
+        "4. When the inbox is empty, stop."
+    )
 
     @classmethod
     def from_toml(cls, path: Path) -> AgentDef:
@@ -69,6 +81,7 @@ class AgentDef:
             model=str(data.get("model", "")),
             working_dir=str(data.get("working_dir", "")),
             status=str(data.get("status", "running")),
+            prompt=str(data.get("prompt", "")),
         )
 
     def toml_str(self) -> str:
@@ -79,6 +92,8 @@ class AgentDef:
             f'restart = "{self.restart}"',
             f'wake_on_message = {str(self.wake_on_message).lower()}',
         ]
+        if self.prompt:
+            lines.append(f'prompt = "{self.prompt}"')
         if self.model:
             lines.append(f'model = "{self.model}"')
         if self.working_dir:
@@ -113,14 +128,29 @@ def _backoff_delay(restart_count: int, max_delay: float = 60.0) -> float:
 # ─── Mux helpers ──────────────────────────────────────────────────────────────
 
 
+def _seed_kg_root_in_mux(mux_db_path: Path, agent_name: str, kg_root: Path) -> None:
+    """Register agent's kg_root in mux.db so pending-count works before first session."""
+    try:
+        with sqlite3.connect(str(mux_db_path)) as conn:
+            conn.execute(
+                "INSERT INTO agents(name, status, last_seen, pid, kg_root, session_id)"
+                " VALUES(?, 'idle', datetime('now'), NULL, ?, '')"
+                " ON CONFLICT(name) DO UPDATE SET"
+                "   kg_root=COALESCE(NULLIF(excluded.kg_root,''), kg_root)",
+                (agent_name, str(kg_root)),
+            )
+    except Exception:
+        pass  # mux.db may not exist yet; it'll register on first session-start
+
+
 def _has_pending_messages(mux_url: str, agent_name: str) -> bool:
-    """Check if agent has pending messages without consuming them."""
+    """Non-destructively check if agent has any pending messages (normal or urgent)."""
     import urllib.request
     try:
-        url = f"{mux_url}/agent/{agent_name}/pending"
+        url = f"{mux_url}/agent/{agent_name}/pending-count"
         with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
             data = json.loads(resp.read())
-            return bool(data.get("messages"))
+            return int(data.get("count", 0)) > 0
     except Exception:
         return False
 
@@ -163,7 +193,12 @@ class Launcher:
             str(self.agents_dir),
             flags.CLOSE_WRITE | flags.MOVED_TO | flags.MOVED_FROM | flags.DELETE | flags.CREATE,
         )
-        log.info("inotify watching %s (poll every %.0fs)", self.agents_dir, poll_interval)
+
+        # Also watch .kg/index/ for writes to messages.db → immediate wake on new message
+        index_dir = self.cfg.root / ".kg" / "index"
+        index_dir.mkdir(parents=True, exist_ok=True)
+        inotify.add_watch(str(index_dir), flags.CLOSE_WRITE)
+        log.info("inotify watching %s + index/ (poll every %.0fs)", self.agents_dir, poll_interval)
 
         # Force immediate first poll cycle
         last_poll = time.monotonic() - poll_interval
@@ -176,7 +211,15 @@ class Launcher:
 
                 events = inotify.read(timeout=timeout_ms)
 
-                # Inotify: re-sync immediately on any .toml change
+                # messages.db updated → new message arrived, wake immediately
+                if any(e.name == "messages.db" for e in events):
+                    try:
+                        self._reap_and_restart()
+                        self._wake_on_message()
+                    except Exception as exc:
+                        log.warning("wake after message event failed: %s", exc)
+
+                # .toml change → re-sync agent definitions
                 if any(e.name.endswith(".toml") for e in events):
                     log.info("agents dir changed — resyncing definitions")
                     try:
@@ -273,6 +316,7 @@ class Launcher:
                 # New agent for this node
                 ma = ManagedAgent(defn=defn)
                 self.managed[defn.name] = ma
+                _seed_kg_root_in_mux(self.cfg.mux_db_path, defn.name, self.cfg.root)
                 if defn.auto_start and defn.status == "running":
                     self._launch(ma)
             else:
@@ -302,6 +346,11 @@ class Launcher:
             ma.last_exit_code = rc
             ma.proc = None
             log.info("agent %s exited (rc=%d, restarts=%d)", name, rc, ma.restart_count)
+
+            # Clean exit (rc=0): reset restart count so backoff doesn't accumulate
+            if rc == 0:
+                ma.restart_count = 0
+                ma.next_start_after = 0.0
 
             # Paused or draining: do not restart
             if ma.defn.status in ("paused", "draining"):
@@ -336,6 +385,19 @@ class Launcher:
                 log.info("agent %s has pending messages — waking", name)
                 self._launch(ma)
 
+    def _get_prev_session_id(self, name: str) -> str:
+        """Return the last session_id for this agent (for --resume), or '' if none."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(str(self.cfg.mux_db_path))
+            row = conn.execute(
+                "SELECT session_id FROM agents WHERE name=?", (name,)
+            ).fetchone()
+            conn.close()
+            return (row[0] or "") if row else ""
+        except Exception:
+            return ""
+
     def _launch(self, ma: ManagedAgent) -> None:
         if ma.defn.status != "running":
             log.debug("agent %s status=%s — skipping launch", ma.defn.name, ma.defn.status)
@@ -345,8 +407,21 @@ class Launcher:
         env["KG_AGENT_NAME"] = defn.name
         if defn.model:
             env["ANTHROPIC_MODEL"] = defn.model
+        # Allow nested launch: unset CLAUDECODE so claude doesn't refuse to start
+        env.pop("CLAUDECODE", None)
 
-        cmd = ["claude", "--dangerously-skip-permissions"]
+        startup_prompt = defn.prompt or defn._DEFAULT_PROMPT
+        prev_session_id = self._get_prev_session_id(defn.name)
+        if prev_session_id:
+            # Resume previous session for continuity (growing transcript, no new session file)
+            cmd = [
+                "claude", "--dangerously-skip-permissions",
+                "--resume", prev_session_id,
+                "--print", startup_prompt,
+            ]
+            log.info("resuming agent %s from session %s", defn.name, prev_session_id[:8])
+        else:
+            cmd = ["claude", "--dangerously-skip-permissions", "--print", startup_prompt]
         cwd = defn.working_dir or str(self.cfg.root)
 
         try:
@@ -406,7 +481,6 @@ class Launcher:
 # ─── CLI-callable helpers ─────────────────────────────────────────────────────
 
 
-_LAUNCHER_LOG = Path.home() / ".local" / "share" / "kg" / "launcher.log"
 _LAUNCHER_PID = Path.home() / ".local" / "share" / "kg" / ".launcher.pid"
 
 
@@ -419,12 +493,14 @@ def start_background(cfg: KGConfig, node_name: str) -> tuple[bool, str]:
         except (ProcessLookupError, ValueError):
             _LAUNCHER_PID.unlink(missing_ok=True)
 
+    log_path = cfg.launcher_log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     _LAUNCHER_PID.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         [sys.executable, "-m", "kg.agents.launcher",
          "--root", str(cfg.root), "--node", node_name],
         start_new_session=True,
-        stdout=_LAUNCHER_LOG.open("a"),
+        stdout=log_path.open("a"),
         stderr=subprocess.STDOUT,
     )
     _LAUNCHER_PID.write_text(str(proc.pid))
@@ -434,7 +510,7 @@ def start_background(cfg: KGConfig, node_name: str) -> tuple[bool, str]:
         return True, f"launcher started (pid {proc.pid}) node={node_name}"
     except ProcessLookupError:
         _LAUNCHER_PID.unlink(missing_ok=True)
-        return False, f"launcher failed to start — check {_LAUNCHER_LOG}"
+        return False, f"launcher failed to start — check {log_path}"
 
 
 def stop_background() -> tuple[bool, str]:

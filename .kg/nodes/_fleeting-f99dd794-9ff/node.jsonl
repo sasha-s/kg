@@ -1,0 +1,4 @@
+{"v": 1, "slug": "_fleeting-f99dd794-9ff", "title": "_fleeting-f99dd794-9ff", "type": "concept", "created_at": "2026-02-22T09:05:44.387725+00:00"}
+{"id": "b-85128d57", "type": "note", "text": "intent: process web agent inbox \u2014 relay improve-web progress reports and direct next tasks", "created_at": "2026-02-22T09:05:44.387994+00:00"}
+{"id": "b-666f24db", "type": "note", "text": "outcome: greenlighted streaming thinking indicators; corrected inotify-SSE task (was told to skip inotify but it's already a dep \u2014 improve-web shipped it); inbox mostly status updates from test relay", "created_at": "2026-02-22T09:05:48.133740+00:00"}
+{"id": "b-55744255", "type": "gotcha", "text": "gotcha: web agent gave wrong instruction to avoid inotify (inotify-simple is already installed in kg) \u2014 always check existing deps before saying 'no new deps'", "created_at": "2026-02-22T09:05:51.579394+00:00"}

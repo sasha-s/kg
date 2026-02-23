@@ -1,29 +1,205 @@
 {
-  "token_budget": 10567.0,
+  "token_budget": 357055.0,
   "bullets": {
     "b-ae9c1a0b": {
-      "useful": 1,
+      "useful": 7,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T06:46:45.381380+00:00"
+      "updated_at": "2026-02-22T11:15:37.310655+00:00"
     },
     "b-956a5398": {
-      "useful": 1,
+      "useful": 5,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T06:46:45.383028+00:00"
+      "updated_at": "2026-02-22T11:15:37.306191+00:00"
     },
     "b-c1b6898c": {
-      "useful": 1,
+      "useful": 6,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T06:46:45.384537+00:00"
+      "updated_at": "2026-02-22T09:14:52.730295+00:00"
     },
     "b-fc63f700": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:02:27.128788+00:00"
+    },
+    "b-15ac3f37": {
+      "useful": 6,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:15:37.317571+00:00"
+    },
+    "b-da2746a8": {
       "useful": 1,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T06:46:45.385919+00:00"
+      "updated_at": "2026-02-22T06:53:36.850783+00:00"
+    },
+    "b-02bcd45e": {
+      "useful": 6,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:15:37.321189+00:00"
+    },
+    "b-caa6c122": {
+      "useful": 12,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:09:25.819300+00:00"
+    },
+    "b-f905d350": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.118233+00:00"
+    },
+    "b-4e3b6602": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:01:22.928612+00:00"
+    },
+    "b-2e2875d7": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:01:22.931154+00:00"
+    },
+    "b-5988fb07": {
+      "useful": 3,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:12:32.155227+00:00"
+    },
+    "b-1eb8d706": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:04:40.663124+00:00"
+    },
+    "b-53674da0": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:04:40.666218+00:00"
+    },
+    "b-1d9bc51e": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.121479+00:00"
+    },
+    "b-267a5af3": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.124285+00:00"
+    },
+    "b-573dbeca": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.127342+00:00"
+    },
+    "b-6f3fdcf6": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.130110+00:00"
+    },
+    "b-0c64ff09": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:05:11.132749+00:00"
+    },
+    "b-7e43fec4": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:29.974144+00:00"
+    },
+    "b-599a1cb5": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:29.977469+00:00"
+    },
+    "b-c9fbc159": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:29.980394+00:00"
+    },
+    "b-924d09d8": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:33.414625+00:00"
+    },
+    "b-1195ac03": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:29.997097+00:00"
+    },
+    "b-e9b35b0a": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:33.407896+00:00"
+    },
+    "b-4d650d79": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:09:33.411541+00:00"
+    },
+    "b-60370e13": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:14:52.733200+00:00"
+    },
+    "b-24c9f90b": {
+      "useful": 0,
+      "harmful": 1,
+      "used": 0,
+      "updated_at": "2026-02-22T09:25:03.170723+00:00"
+    },
+    "b-ae077c53": {
+      "useful": 0,
+      "harmful": 1,
+      "used": 0,
+      "updated_at": "2026-02-22T09:25:03.173855+00:00"
+    },
+    "b-a2d64ed2": {
+      "useful": 0,
+      "harmful": 1,
+      "used": 0,
+      "updated_at": "2026-02-22T09:25:03.177177+00:00"
+    },
+    "b-47ad175c": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:15:37.314160+00:00"
+    },
+    "b-65033345": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:27:41.495434+00:00"
+    },
+    "b-17074a6d": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T11:27:41.498944+00:00"
     }
-  }
+  },
+  "last_bullet_checkpoint": 105,
+  "last_reviewed": "2026-02-22T10:22:44.737935+00:00"
 }

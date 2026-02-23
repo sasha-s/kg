@@ -1,0 +1,53 @@
+{"v": 1, "slug": "agent-web", "title": "agent-web", "type": "concept", "created_at": "2026-02-22T08:57:22.912546+00:00"}
+{"id": "b-4440cc59", "type": "fact", "text": "Working memory for agent 'web'. Bullets accumulated here across sessions. Accessible via kg MCP tools.", "created_at": "2026-02-22T08:57:22.912746+00:00"}
+{"id": "b-a7ae1ccf", "type": "note", "text": "current state: processed message backlog; improve-web shipped 5 web.py improvements; assigned remaining tasks (dark/light toggle, session [[slug]] rendering); all reports go to 'test' agent, not 'web' [[agent-improve-web]]", "created_at": "2026-02-22T08:59:03.664278+00:00"}
+{"id": "b-6ca23685", "type": "fact", "text": "web agent has no auto-start (no web.toml initially) \u2014 test agent created web.toml launcher but web agent is human-proxied and monitors manually. Messages queue up in mux until a session is manually triggered [[kg-agent-mux]] [[kg-agent-launcher]]", "created_at": "2026-02-22T08:59:07.709198+00:00"}
+{"id": "b-63b580e7", "type": "note", "text": "current state: processed stacked messages from test + improve-web; improve-web has shipped 5 features and reports to 'test'; remaining tasks queued: dark/light theme, [[slug]] in session turns, streaming indicators [[kg-web]]", "created_at": "2026-02-22T08:59:13.538176+00:00"}
+{"id": "b-22318112", "type": "decision", "text": "decision: improve-web reports to 'test' agent (not 'web') since web has no launcher and is human-monitored; test relays progress reports back to web", "created_at": "2026-02-22T08:59:16.957693+00:00"}
+{"id": "b-96c1187f", "type": "decision", "text": "decision: improve-web agent reports to 'test' not 'web' \u2014 human monitors via test agent inbox. web.toml launcher exists but web agent is manually operated [[kg-agent-launcher]]", "created_at": "2026-02-22T08:59:33.110618+00:00"}
+{"id": "b-bafab217", "type": "note", "text": "current state: improve-web has shipped 5 improvements (hover previews, [[slug]] in messages, settings panel, session list previews, agent links). Still pending: dark/light theme toggle, [[slug]] in session turn text, streaming indicators. Tasks assigned, test agent relaying reports. [[kg-web]]", "created_at": "2026-02-22T08:59:39.499817+00:00"}
+{"id": "b-a7ae1ccf", "deleted": true}
+{"id": "b-63b580e7", "deleted": true}
+{"id": "b-bafab217", "deleted": true}
+{"id": "b-c7acdce9", "type": "note", "text": "current state: improve-web has shipped 5 features (hover previews, [[slug]] in messages, settings panel, session list previews, agent links) + SSE streaming + mobile UX. Still pending: dark/light theme toggle, [[slug]] in session turn text. Tasks assigned, awaiting improve-web completion report via test agent relay. [[kg-web]]", "created_at": "2026-02-22T09:00:45.076656+00:00"}
+{"id": "b-a7ae1ccf", "deleted": true}
+{"id": "b-63b580e7", "deleted": true}
+{"id": "b-bafab217", "deleted": true}
+{"id": "b-c5ce5318", "type": "note", "text": "current state: improve-web shipped SSE streaming + mobile UX; remaining tasks = dark/light theme toggle + [[slug]] in session turn text; improve-web reports to 'test' which relays to web [[kg-web]]", "created_at": "2026-02-22T09:01:16.034965+00:00"}
+{"id": "b-88eee50e", "type": "note", "text": "current state: improve-web has shipped 10 web UX features total. Pending: replace SSE 1s poll with inotify (task sent), streaming thinking indicators (queued). improve-web reports to 'test' agent which relays to web. [[kg-web]]", "created_at": "2026-02-22T09:03:30.799584+00:00"}
+{"id": "b-c7acdce9", "deleted": true}
+{"id": "b-c5ce5318", "deleted": true}
+{"id": "b-5de86834", "type": "note", "text": "improve-web has shipped 10 web UI features across 2 rounds; pending: SSE inotify upgrade + streaming thinking indicators [[kg-web]]", "created_at": "2026-02-22T09:03:50.678458+00:00"}
+{"id": "b-6dad936a", "type": "gotcha", "text": "key correction: inotify-simple is already a dep in kg \u2014 do not instruct agents to avoid it to skip adding deps; it's available on Linux without any new install", "created_at": "2026-02-22T09:03:54.445721+00:00"}
+{"id": "b-96c1187f", "deleted": true}
+{"id": "b-5de86834", "deleted": true}
+{"id": "b-13cce984", "type": "note", "text": "current state: waiting for improve-web to report on inotify SSE upgrade and streaming thinking indicators; both tasks are in-flight via test agent relay [[kg-web]]", "created_at": "2026-02-22T09:05:01.209124+00:00"}
+{"id": "b-13cce984", "deleted": true}
+{"id": "b-2f164775", "type": "note", "text": "current state: improve-web has shipped 11 features (10 UX + inotify SSE upgrade). Streaming thinking indicators greenlighted \u2014 in-flight via improve-web \u2192 test \u2192 web relay. [[kg-web]]", "created_at": "2026-02-22T09:05:36.837103+00:00"}
+{"id": "b-92fff98d", "type": "gotcha", "text": "lesson: before saying 'skip X to avoid new deps', check if X is already in the project \u2014 inotify-simple was already a dep but I told improve-web to skip it", "created_at": "2026-02-22T09:05:55.127012+00:00"}
+{"id": "b-9a373c54", "type": "note", "text": "(note) improve-web shipped 14 web.py improvements across multiple rounds: hover previews, [[slug]] rendering everywhere, settings panel, session list previews, agent page links, SSE streaming (inotify-based), live-dot, mobile CSS, light/dark toggle, messages on top, streaming thinking indicators, font size 11-36px, mobile fetch() forms (no native POST). Mission complete.", "created_at": "2026-02-22T09:06:25.558160+00:00", "updated_at": "2026-02-22T09:11:10.733774+00:00"}
+{"id": "b-f5db44a6", "type": "fact", "text": "web agent role: human-operated inbox, monitors via manual sessions. Routes tasks to improve-web via test agent (since improve-web reports to test, not web). web.toml launcher created by test agent as safety net.", "created_at": "2026-02-22T09:06:26.224865+00:00"}
+{"id": "b-88eee50e", "deleted": true}
+{"id": "b-92fff98d", "deleted": true}
+{"id": "b-e57aca41", "type": "note", "text": "(note) current state: improve-web mission complete, stood down. All 14 web UX features shipped. agent-improve-web KG node updated by test agent with full completion summary. [[kg-web]]", "created_at": "2026-02-22T09:09:43.551652+00:00", "updated_at": "2026-02-22T09:11:14.464917+00:00"}
+{"id": "b-2f164775", "deleted": true}
+{"id": "b-1b5236fa", "type": "note", "text": "improve-web agent completed all 14 web UX improvements to src/kg/web.py. Feature list captured in kg-web node. improve-web stood down with no active tasks. test agent coordinates worker agents; web is human-operated inbox (no launcher needed).", "created_at": "2026-02-22T09:11:19.710495+00:00"}
+{"id": "b-d0f7399a", "type": "note", "text": "current state: improve-web mission complete (14 features). stood down. all web UX items done. agent-improve-web KG node updated with completion summary. no pending tasks.", "created_at": "2026-02-22T09:11:41.883204+00:00"}
+{"id": "b-b2eed1c2", "type": "note", "text": "(note) current state: improve-web mission COMPLETE \u2014 12 features shipped across 3 rounds. All web.py improvements done: hover previews, [[slug]] everywhere, settings panel, session list previews, agent page links, SSE streaming, inotify SSE, live-dot, mobile CSS, light/dark toggle, messages on top, streaming thinking indicators. No active tasks. [[kg-web]]", "created_at": "2026-02-22T09:13:17.337093+00:00"}
+{"id": "b-88eee50e", "deleted": true}
+{"id": "b-2f164775", "deleted": true}
+{"id": "b-9a373c54", "deleted": true}
+{"id": "b-dc3a0eba", "type": "note", "text": "(note) three-agent loop concluded: human(web) \u2192 test \u2192 improve-web \u2192 test \u2192 web. All 12 web.py UX tasks complete. No pending tasks from improve-web.", "created_at": "2026-02-22T09:13:35.287083+00:00"}
+{"id": "b-e57aca41", "deleted": true}
+{"id": "b-1b5236fa", "deleted": true}
+{"id": "b-d0f7399a", "deleted": true}
+{"id": "b-b2eed1c2", "deleted": true}
+{"id": "b-dc3a0eba", "deleted": true}
+{"id": "b-6fd241ec", "type": "note", "text": "current state: improve-web Round 4 complete \u2014 sticky chat input, agent page KG+mission links, instructions\u2192mission rename across all layers. Tasked with session page improvements (collapsible tool use, better turn rendering, _render() on assistant text). Standing by for report from test.", "created_at": "2026-02-22T09:24:34.807606+00:00"}
+{"id": "b-6fd241ec", "deleted": true}
+{"id": "b-87b649df", "type": "note", "text": "(note) current state: improve-web mission COMPLETE \u2014 15+ features shipped across 5 rounds including session page turn rendering (Round 5). improve-web stood down. No active tasks.", "created_at": "2026-02-22T09:29:04.535204+00:00"}
+{"id": "b-09011dfe", "type": "note", "text": "(note) session 228e7058: web agent processed routine inbox \u2014 relayed Round 5 confirmation to improve-web, stood it down. Multi-agent improve-web mission fully wrapped.", "created_at": "2026-02-22T09:29:19.210260+00:00"}
+{"id": "b-6fd241ec", "deleted": true}
+{"id": "b-f0d8cc7e", "type": "fact", "text": "(note) current state: improve-web mission COMPLETE \u2014 15+ features across 5 rounds shipped and confirmed. test agent sent final sign-off (session bf9b5260). All agents standing down. improve-web inbox empty. [[agent-improve-web]]", "created_at": "2026-02-22T09:29:42.511305+00:00"}
+{"id": "b-87b649df", "deleted": true}
+{"id": "b-09011dfe", "deleted": true}

@@ -311,7 +311,7 @@ cli.add_command(calibrate_cmd, name="calibrate")
 BULLET_TYPES = ["fact", "gotcha", "decision", "task", "note", "success", "failure"]
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("slug")
 @click.argument("text")
 @click.option(
@@ -352,7 +352,7 @@ def _find_bullet_slug(bullet_id: str, cfg: KGConfig) -> str | None:
     return None
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("bullet_id")
 @click.argument("text")
 def update(bullet_id: str, text: str) -> None:
@@ -366,7 +366,7 @@ def update(bullet_id: str, text: str) -> None:
     click.echo(f"Updated {bullet_id} on [{slug}]")
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("bullet_id")
 def delete(bullet_id: str) -> None:
     """Delete a bullet by ID (appends tombstone)."""
@@ -438,7 +438,7 @@ def vote_harmful(bullet_ids: tuple[str, ...]) -> None:
 # ---------------------------------------------------------------------------
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("slug")
 @click.argument("title")
 @click.option("--type", "node_type", default="concept", show_default=True)
@@ -530,7 +530,7 @@ def _show_links_to(slug: str, cfg: KGConfig, query: str | None = None, limit: in
         click.echo(f"  [{to_slug}] {title}")
 
 
-@cli.command()
+@cli.command(no_args_is_help=True)
 @click.argument("slug")
 @click.option(
     "--query", "-q", default=None, help="Rank bullets and links by relevance to this query"
@@ -867,7 +867,7 @@ def nodes(ctx: click.Context, limit: int, recent: bool, bullets: bool, docs: boo
     console.print(table)
 
 
-@nodes.command("show")
+@nodes.command("show", no_args_is_help=True)
 @click.argument("slug")
 @click.option("--query", "-q", default=None, help="Rank bullets and links by relevance to this query")
 @click.option("--limit", "-l", default=10, show_default=True, help="Max bullets to show (0 = all)")
@@ -1631,18 +1631,92 @@ def serve(root: str | None) -> None:
 @click.option(
     "--port", "-p", default=None, type=int, help="Port (default: kg.toml [server].web_port or 7345)"
 )
-def web(host: str | None, port: int | None) -> None:
+@click.option("--dev", is_flag=True, help="Dev mode: restart server on source file changes")
+def web(host: str | None, port: int | None, dev: bool) -> None:
     """Start local web viewer with FTS+vector search.
 
     \b
     kg web                  # http://127.0.0.1:7345
     kg web --port 8080
     kg web --host 0.0.0.0   # expose on LAN
+    kg web --dev            # auto-restart on src/kg/*.py changes
     """
     cfg = _load_cfg()
-    from kg.web import serve as _web_serve
+    resolved_host = host or cfg.server.web_host
+    resolved_port = port or cfg.server.web_port
 
-    _web_serve(cfg, host=host or cfg.server.web_host, port=port or cfg.server.web_port)
+    if not dev:
+        from kg.web import serve as _web_serve
+        _web_serve(cfg, host=resolved_host, port=resolved_port)
+        return
+
+    # Dev mode: spawn server as subprocess, restart on source changes
+    import signal
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    src_dir = Path(__file__).parent.parent  # src/kg/../  → src/
+    kg_src = Path(__file__).parent           # src/kg/
+
+    cmd = [sys.executable, "-m", "kg.cli", "web", "--host", resolved_host, "--port", str(resolved_port)]
+
+    def _start() -> subprocess.Popen:  # type: ignore[type-arg]
+        print(f"[dev] starting kg web on {resolved_host}:{resolved_port}")
+        return subprocess.Popen(cmd, cwd=str(cfg.root))
+
+    proc = _start()
+
+    try:
+        import inotify_simple  # type: ignore[import]
+        inotify = inotify_simple.INotify()
+        flags = inotify_simple.flags
+        inotify.add_watch(str(kg_src), flags.CLOSE_WRITE | flags.CREATE | flags.DELETE)
+        # Also watch sub-packages
+        for sub in kg_src.iterdir():
+            if sub.is_dir() and (sub / "__init__.py").exists():
+                inotify.add_watch(str(sub), flags.CLOSE_WRITE | flags.CREATE | flags.DELETE)
+        print(f"[dev] watching {kg_src} for changes …")
+        while True:
+            events = inotify.read(timeout=1000)
+            changed = any(e.name.endswith(".py") for e in events)
+            if changed:
+                names = {e.name for e in events if e.name.endswith(".py")}
+                print(f"[dev] changed: {', '.join(sorted(names))} — restarting …")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                time.sleep(0.2)
+                proc = _start()
+    except ImportError:
+        # Fallback: poll mtime every second
+        print("[dev] inotify unavailable — polling every 1s")
+        mtimes: dict[Path, float] = {}
+
+        def _snapshot() -> dict[Path, float]:
+            return {p: p.stat().st_mtime for p in kg_src.rglob("*.py")}
+
+        mtimes = _snapshot()
+        while True:
+            time.sleep(1.0)
+            now = _snapshot()
+            changed = {p for p, m in now.items() if mtimes.get(p) != m}
+            if changed:
+                names = {p.name for p in changed}
+                print(f"[dev] changed: {', '.join(sorted(names))} — restarting …")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                time.sleep(0.2)
+                proc = _start()
+                mtimes = now
+    except KeyboardInterrupt:
+        proc.terminate()
 
 
 # ---------------------------------------------------------------------------
@@ -1723,11 +1797,12 @@ cli.add_command(search, name="query")
 # Agent mux subcommand group
 # ---------------------------------------------------------------------------
 
-from kg.agents.cli import agent_run_cmd, launcher_cli, mux_cli  # noqa: E402
+from kg.agents.cli import agent_cli, agent_run_cmd, launcher_cli, mux_cli  # noqa: E402
 
 cli.add_command(mux_cli)
 cli.add_command(launcher_cli)
 cli.add_command(agent_run_cmd, name="run")
+cli.add_command(agent_cli, name="agent")
 
 # ---------------------------------------------------------------------------
 # Entry point

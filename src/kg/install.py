@@ -250,15 +250,16 @@ def ensure_dot_claude_symlink(cfg: KGConfig) -> tuple[bool, str]:
 
 
 def ensure_agent_hooks_installed(cfg: Any, settings_path: Path | None = None) -> list[tuple[bool, str]]:
-    """Install agent hooks into settings.json. Idempotent.
+    """Install agent hooks into .claude/settings.json (project-local). Idempotent.
 
-    Requires cfg.agents.enabled=True and cfg.agents.name set.
+    Requires cfg.agents.enabled=True.
     Installs: SessionStart, UserPromptSubmit, PostToolUse (async), Stop, SessionEnd.
     """
     if not cfg.agents.enabled:
         return [(False, "agents.enabled=false — skipping")]
 
-    path = settings_path or _claude_settings_path()
+    # Project-local .claude/settings.json (not global ~/.claude/)
+    path = settings_path or (cfg.root / ".claude" / "settings.json")
     settings = _load_settings(path)
     hooks_section = settings.setdefault("hooks", {})
     results: list[tuple[bool, str]] = []

@@ -1,0 +1,6 @@
+name = "web"
+node = "local"
+auto_start = false
+restart = "on-failure"
+wake_on_message = true
+status = "paused"

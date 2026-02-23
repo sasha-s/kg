@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python -m kg.hooks.session_context"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks user_prompt_submit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python -m kg.hooks.stop"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks stop"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks session_start"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks post_tool_use",
+            "async": true
+          }
+        ],
+        "matcher": ".*"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks session_end"
+          }
+        ]
+      }
+    ]
+  }
+}

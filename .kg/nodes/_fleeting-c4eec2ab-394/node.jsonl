@@ -1,0 +1,5 @@
+{"v": 1, "slug": "_fleeting-c4eec2ab-394", "title": "_fleeting-c4eec2ab-394", "type": "concept", "created_at": "2026-02-22T09:11:18.213527+00:00"}
+{"id": "b-d6bdb9ad", "type": "note", "text": "intent: implement kg web UX improvements as improve-web agent \u2014 SSE streaming, theme, mobile, streaming indicators", "created_at": "2026-02-22T09:11:18.213761+00:00"}
+{"id": "b-077e5e18", "type": "note", "text": "outcome: shipped 12 features across 3 rounds \u2014 inotify SSE (/agent/<name>/events), streaming turn indicators (_extract_turn_for_sse), light/dark theme, font slider 11-36px, hover previews, fetch()-based forms (mobile fix), messages newest-on-top, chat input at top, mobile CSS, session preview list, [[slug]] in messages+sessions, agent page links", "created_at": "2026-02-22T09:11:23.416458+00:00"}
+{"id": "b-288a1a4f", "type": "gotcha", "text": "gotcha: inotify sessions_dir may not exist at SSE connect \u2014 watch parent cfg.sessions_dir for CREATE event to detect when agent subdir is first created, then upgrade to direct watch", "created_at": "2026-02-22T09:11:28.306411+00:00"}
+{"id": "b-288a1a4f", "deleted": true}

@@ -1,0 +1,4 @@
+{"v": 1, "slug": "kg-agent-cli", "title": "kg Agent CLI", "type": "concept", "created_at": "2026-02-22T07:41:24.963088+00:00"}
+{"id": "b-c2522b24", "type": "fact", "text": "no_args_is_help=True on click commands with required arguments \u2014 shows full help instead of terse \"Try --help\" error", "created_at": "2026-02-22T07:41:28.477989+00:00"}
+{"id": "b-91c78969", "type": "fact", "text": "kg agent create is the top-level alias (wired from mux agent create); kg mux agent create also works", "created_at": "2026-02-22T07:41:29.853965+00:00"}
+{"id": "b-6eda371f", "type": "fact", "text": "kg mux start / kg launcher start default to background; -f/--foreground for foreground; -d/--daemon added as explicit alias for background", "created_at": "2026-02-22T07:41:32.802694+00:00"}

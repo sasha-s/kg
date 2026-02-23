@@ -1,0 +1,3 @@
+{"v": 1, "slug": "_fleeting-b1ccd496-76d", "title": "_fleeting-b1ccd496-76d", "type": "concept", "created_at": "2026-02-23T05:29:33.392395+00:00"}
+{"id": "b-4ff7823f", "type": "note", "text": "intent: debug why improve-web agent was idle despite 2 pending messages in messages.db", "created_at": "2026-02-23T05:29:33.392637+00:00"}
+{"id": "b-72c4ef19", "type": "note", "text": "outcome: found two bugs \u2014 (1) _handle_pending_count used urgent_delivered instead of urgent_acked causing injected-but-unreplied urgents to vanish from count; (2) launcher didn't seed kg_root into mux.db after restart so pending-count always returned 0. Fixed both in mux.py and launcher.py. Agent woke after mux restart.", "created_at": "2026-02-23T05:29:34.040948+00:00"}

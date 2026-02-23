@@ -1,0 +1,29 @@
+{
+  "bullets": {
+    "b-2b25e607": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T08:41:07.290463+00:00"
+    },
+    "b-70579558": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T08:41:07.293256+00:00"
+    },
+    "b-859ea4d8": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T08:41:07.295928+00:00"
+    },
+    "b-aa4050b2": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:17:09.246715+00:00"
+    }
+  },
+  "token_budget": 1515.0
+}

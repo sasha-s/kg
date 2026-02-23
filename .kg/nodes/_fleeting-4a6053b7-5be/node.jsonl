@@ -1,0 +1,3 @@
+{"v": 1, "slug": "_fleeting-4a6053b7-5be", "title": "_fleeting-4a6053b7-5be", "type": "concept", "created_at": "2026-02-22T08:59:00.839829+00:00"}
+{"id": "b-1f85c36e", "type": "note", "text": "intent: web agent processed queued messages from test and improve-web agents; assigned remaining UI tasks", "created_at": "2026-02-22T08:59:00.840043+00:00"}
+{"id": "b-fdca9154", "type": "note", "text": "outcome: replied to test (chose option 2 \u2014 improve-web reports to 'test' not 'web'); directed improve-web to tackle dark/light theme toggle and [[slug]] in session turn text next; streaming indicators deferred to last", "created_at": "2026-02-22T08:59:05.169635+00:00"}

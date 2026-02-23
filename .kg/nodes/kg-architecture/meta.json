@@ -1,5 +1,5 @@
 {
-  "token_budget": 5835.0,
+  "token_budget": 49628.0,
   "bullets": {
     "b-1dab7d6b": {
       "useful": 6,
@@ -50,16 +50,16 @@
       "updated_at": "2026-02-20T09:03:50.257506+00:00"
     },
     "b-2be2585d": {
-      "useful": 4,
+      "useful": 5,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T03:38:30.419931+00:00"
+      "updated_at": "2026-02-22T07:59:35.837288+00:00"
     },
     "b-a9f5de78": {
-      "useful": 2,
+      "useful": 8,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T06:46:44.754393+00:00"
+      "updated_at": "2026-02-22T09:35:13.891638+00:00"
     },
     "b-4d798205": {
       "useful": 1,
@@ -80,22 +80,22 @@
       "updated_at": "2026-02-20T10:56:27.589690+00:00"
     },
     "b-b14f5123": {
-      "useful": 1,
+      "useful": 4,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T02:35:43.974440+00:00"
+      "updated_at": "2026-02-22T11:27:41.504982+00:00"
     },
     "b-e427de97": {
-      "useful": 1,
-      "harmful": 0,
-      "used": 0,
-      "updated_at": "2026-02-22T02:46:18.684966+00:00"
-    },
-    "b-ec0b5939": {
       "useful": 2,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T04:30:37.501403+00:00"
+      "updated_at": "2026-02-22T07:59:35.840015+00:00"
+    },
+    "b-ec0b5939": {
+      "useful": 3,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T07:59:35.842550+00:00"
     },
     "b-e107fccc": {
       "useful": 1,
@@ -140,16 +140,28 @@
       "updated_at": "2026-02-22T04:30:37.502825+00:00"
     },
     "b-e64ec306": {
-      "useful": 1,
+      "useful": 2,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T04:30:37.504204+00:00"
+      "updated_at": "2026-02-22T07:59:35.847448+00:00"
     },
     "b-f6f20f01": {
       "useful": 1,
       "harmful": 0,
       "used": 0,
       "updated_at": "2026-02-22T04:30:37.505514+00:00"
+    },
+    "b-691f5891": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T07:59:35.844894+00:00"
+    },
+    "b-42cddcc5": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-22T09:08:55.402851+00:00"
     }
   },
   "last_bullet_checkpoint": 0,

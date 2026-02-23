@@ -1,0 +1,3 @@
+{"v": 1, "slug": "_fleeting-e8790cf6-952", "title": "_fleeting-e8790cf6-952", "type": "concept", "created_at": "2026-02-22T09:00:32.673282+00:00"}
+{"id": "b-ef124713", "type": "note", "text": "intent: process pending agent messages (test + improve-web) and direct remaining web.py improvement tasks", "created_at": "2026-02-22T09:00:32.673515+00:00"}
+{"id": "b-b8584758", "type": "note", "text": "outcome: improve-web shipped SSE streaming + mobile UX; assigned dark/light theme toggle + [[slug]] in session turn text as next tasks; test agent relaying reports", "created_at": "2026-02-22T09:00:36.034800+00:00"}

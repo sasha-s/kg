@@ -84,7 +84,6 @@ web_host = "0.0.0.0"
 #
 [agents]
 enabled = true
-# name = ""           # fallback agent name — prefer KG_AGENT_NAME env var at launch time
 # mux_url = "http://127.0.0.1:7346"   # URL agents use to reach the mux
 # mux_port = 7346     # port the mux server listens on (run on the host that owns the mux)
 # git_sync = false    # (future) write messages/sessions to git

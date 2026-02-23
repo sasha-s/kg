@@ -75,6 +75,7 @@ _ACK_DEFAULTS: dict[str, str] = {
     "normal_delivered": "",
     "normal_acked": "",
     "urgent_delivered": "",
+    "urgent_session_delivered": "",  # only updated by session-start / get_pending_messages
     "urgent_acked": "",
 }
 
@@ -135,12 +136,19 @@ def _init_messages_db(db_path: Path) -> None:
                 type        TEXT NOT NULL DEFAULT 'text',
                 body        TEXT NOT NULL,
                 segment     TEXT NOT NULL,
-                line        INTEGER NOT NULL
+                line        INTEGER NOT NULL,
+                acked       INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_to_from_urgency
                 ON messages(to_agent, from_agent, urgency, id);
         """)
         conn.commit()
+        # Migration: add acked column to existing DBs
+        try:
+            conn.execute("ALTER TABLE messages ADD COLUMN acked INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
     finally:
         conn.close()
 
@@ -158,6 +166,32 @@ def _index_message(db_path: Path, msg: dict, segment: str, line: int) -> None:
                 segment, line,
             ),
         )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _ack_messages_in_db(
+    db_path: Path, recipient: str, sender: str,
+    normal_acked_id: str, urgent_acked_id: str,
+) -> None:
+    """Mark messages as acked in messages.db index."""
+    if not db_path.exists():
+        return
+    conn = sqlite3.connect(str(db_path))
+    try:
+        if normal_acked_id:
+            conn.execute(
+                "UPDATE messages SET acked=1"
+                " WHERE to_agent=? AND from_agent=? AND urgency='normal' AND id<=?",
+                (recipient, sender, normal_acked_id),
+            )
+        if urgent_acked_id:
+            conn.execute(
+                "UPDATE messages SET acked=1"
+                " WHERE to_agent=? AND from_agent=? AND urgency='urgent' AND id<=?",
+                (recipient, sender, urgent_acked_id),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -223,31 +257,41 @@ def _init_db(db_path: Path) -> None:
     try:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS agents (
-                name      TEXT PRIMARY KEY,
-                status    TEXT NOT NULL DEFAULT 'idle',
-                last_seen TEXT,
-                pid       INTEGER,
-                kg_root   TEXT
+                name       TEXT PRIMARY KEY,
+                status     TEXT NOT NULL DEFAULT 'idle',
+                last_seen  TEXT,
+                pid        INTEGER,
+                kg_root    TEXT,
+                session_id TEXT
             );
         """)
         conn.commit()
+        # Migrations for existing DBs
+        for col, typedef in [("session_id", "TEXT")]:
+            try:
+                conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {typedef}")
+                conn.commit()
+            except Exception:
+                pass  # already exists
     finally:
         conn.close()
 
 
 def _upsert_agent(
     conn: sqlite3.Connection, name: str, status: str,
-    pid: int | None, kg_root: str = "",
+    pid: int | None, kg_root: str = "", session_id: str = "",
 ) -> None:
     conn.execute(
-        "INSERT INTO agents(name, status, last_seen, pid, kg_root) VALUES(?,?,?,?,?)"
+        "INSERT INTO agents(name, status, last_seen, pid, kg_root, session_id)"
+        " VALUES(?,?,?,?,?,?)"
         " ON CONFLICT(name) DO UPDATE SET"
         "   status=excluded.status,"
         "   last_seen=excluded.last_seen,"
         "   pid=excluded.pid,"
         # only update kg_root if a non-empty value is provided
-        "   kg_root=COALESCE(NULLIF(excluded.kg_root,''), kg_root)",
-        (name, status, _now_iso(), pid, kg_root),
+        "   kg_root=COALESCE(NULLIF(excluded.kg_root,''), kg_root),"
+        "   session_id=COALESCE(NULLIF(excluded.session_id,''), session_id)",
+        (name, status, _now_iso(), pid, kg_root, session_id),
     )
 
 
@@ -288,6 +332,9 @@ def _make_handler(
             if len(parts) == 4 and parts[1] == "agent" and parts[3] == "pending":
                 self._handle_pending(parts[2])
                 return
+            if len(parts) == 4 and parts[1] == "agent" and parts[3] == "pending-count":
+                self._handle_pending_count(parts[2])
+                return
 
             self._json({"error": "not found"}, 404)
 
@@ -325,10 +372,27 @@ def _make_handler(
                 kg_root = _get_kg_root(conn, to_name)
 
             if kg_root is None:
-                self._json({
-                    "error": f"agent '{to_name}' not registered — run: kg mux agent create {to_name}"
-                }, 404)
-                return
+                # Fall back to sender's kg_root (e.g. agent replying to "web" user)
+                if from_name:
+                    with sqlite3.connect(str(mux_db)) as conn:
+                        kg_root = _get_kg_root(conn, from_name)
+                if kg_root is None:
+                    self._json({
+                        "error": f"agent '{to_name}' not registered — run: kg mux agent create {to_name}"
+                    }, 404)
+                    return
+                # Auto-register recipient with sender's kg_root so future lookups work
+                with sqlite3.connect(str(mux_db)) as conn:
+                    _upsert_agent(conn, to_name, "idle", None, str(kg_root))
+
+            # Auto-register sender so replies can be routed back
+            if from_name and from_name != to_name:
+                with sqlite3.connect(str(mux_db)) as conn:
+                    existing = conn.execute(
+                        "SELECT kg_root FROM agents WHERE name=?", (from_name,)
+                    ).fetchone()
+                    if not existing or not existing[0]:
+                        _upsert_agent(conn, from_name, "idle", None, str(kg_root))
 
             # Cap check: normal messages only, requires known sender
             if urgency != "urgent" and max_inbox > 0 and from_name:
@@ -374,6 +438,20 @@ def _make_handler(
             seg_rel = str(seg_path.relative_to(kg_root / ".kg" / "messages"))
             _index_message(db_path, msg, seg_rel, line)
 
+            # Implicit urgent ack: if from_name is replying to to_name, ack unacked
+            # urgents FROM to_name in from_name's inbox. This means "sent a reply → acked".
+            if from_name and from_name != to_name:
+                with sqlite3.connect(str(mux_db)) as conn:
+                    sender_kg_root = _get_kg_root(conn, from_name)
+                if sender_kg_root:
+                    sender_db = _messages_db_path(sender_kg_root)
+                    sender_ack = _read_ack(sender_kg_root, from_name, to_name)
+                    session_del = sender_ack["urgent_session_delivered"]
+                    if session_del and session_del > sender_ack["urgent_acked"]:
+                        _write_ack(sender_kg_root, from_name, to_name,
+                                   urgent_acked=session_del)
+                        _ack_messages_in_db(sender_db, from_name, to_name, "", session_del)
+
             self._json({"id": msg_id})
 
         def _handle_pending(self, name: str) -> None:
@@ -396,6 +474,24 @@ def _make_handler(
 
             all_msgs.sort(key=lambda m: m["id"])
             self._json({"messages": all_msgs})
+
+        def _handle_pending_count(self, name: str) -> None:
+            """Non-destructive count of undelivered messages (normal + urgent). Used by launcher."""
+            with sqlite3.connect(str(mux_db)) as conn:
+                kg_root = _get_kg_root(conn, name)
+            if kg_root is None:
+                self._json({"count": 0})
+                return
+            db_path = _messages_db_path(kg_root)
+            count = 0
+            for sender in _list_senders(db_path, name):
+                ack = _read_ack(kg_root, name, sender)
+                count += _count_unacked(db_path, name, sender, ack["normal_acked"])
+                # count unprocessed urgents: use urgent_acked (not urgent_delivered) so
+                # messages that were injected but not yet replied-to still wake the launcher
+                urgent_msgs = _read_unacked(db_path, name, sender, "urgent", ack["urgent_acked"])
+                count += len(urgent_msgs)
+            self._json({"count": count})
 
         def _handle_heartbeat(self, name: str, body: dict) -> None:
             """Heartbeat + deliver one urgent message if pending."""
@@ -427,7 +523,8 @@ def _make_handler(
             """Register agent, drain all unacked messages (with crash recovery)."""
             kg_root_str = body.get("kg_root", "")
             with sqlite3.connect(str(mux_db)) as conn:
-                _upsert_agent(conn, name, "running", body.get("pid"), kg_root_str)
+                _upsert_agent(conn, name, "running", body.get("pid"), kg_root_str,
+                              body.get("session_id", ""))
                 kg_root = _get_kg_root(conn, name)
 
             if kg_root is None:
@@ -450,7 +547,9 @@ def _make_handler(
                     updates["normal_delivered"] = normal[-1]["id"]
                 if urgent:
                     all_msgs.extend(urgent)
+                    # session_delivered tracks session-start delivery (Stop uses this, not heartbeat's)
                     updates["urgent_delivered"] = urgent[-1]["id"]
+                    updates["urgent_session_delivered"] = urgent[-1]["id"]
                 if updates:
                     _write_ack(kg_root, name, sender, **updates)
 
@@ -486,16 +585,23 @@ def _make_handler(
                         })
                         return
 
-            # Commit: acked_through = delivered_through for all senders
+            # Commit normal acks only.
+            # Urgents are NOT acked here — they're re-delivered on the next session-start
+            # so the agent gets another chance to reply if it was killed mid-processing.
+            # Urgents get acked when session-start delivers NEW urgents (implying the
+            # previous session's urgents were processed successfully).
             for sender in senders:
                 ack = _read_ack(kg_root, name, sender)
                 updates: dict[str, str] = {}
                 if ack["normal_delivered"]:
                     updates["normal_acked"] = ack["normal_delivered"]
-                if ack["urgent_delivered"]:
-                    updates["urgent_acked"] = ack["urgent_delivered"]
                 if updates:
                     _write_ack(kg_root, name, sender, **updates)
+                    _ack_messages_in_db(
+                        db_path, name, sender,
+                        updates.get("normal_acked", ""),
+                        "",
+                    )
 
             with sqlite3.connect(str(mux_db)) as conn:
                 conn.execute(

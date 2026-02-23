@@ -1,0 +1,4 @@
+{"v": 1, "slug": "_fleeting-0f5c3e22-317", "title": "_fleeting-0f5c3e22-317", "type": "concept", "created_at": "2026-02-22T08:33:42.188406+00:00"}
+{"id": "b-bef5717b", "type": "note", "text": "intent: respond to web agent asking about last message sent to it", "created_at": "2026-02-22T08:33:42.188666+00:00"}
+{"id": "b-e714d08e", "type": "note", "text": "outcome: confirmed mux.db has no message history (agents table only); messages consumed on delivery \u2014 no way to reconstruct prior inter-agent messages from DB", "created_at": "2026-02-22T08:33:46.151942+00:00"}
+{"id": "b-9f07e98a", "type": "gotcha", "text": "gotcha: get_pending_messages may show an already-replied-to message again in the same session (possible re-display artifact vs. re-delivery)", "created_at": "2026-02-22T08:33:49.642344+00:00"}

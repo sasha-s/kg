@@ -1,0 +1,5 @@
+{"v": 1, "slug": "_fleeting-e45a8e52-67c", "title": "_fleeting-e45a8e52-67c", "type": "concept", "created_at": "2026-02-22T09:06:12.446074+00:00"}
+{"id": "b-3a90c158", "type": "note", "text": "intent: web agent processing inbox \u2014 reviewing improve-web progress reports and directing next tasks", "created_at": "2026-02-22T09:06:12.446305+00:00"}
+{"id": "b-82810eea", "type": "note", "text": "outcome: directed improve-web through 3 rounds: (1) dark/light toggle + [[slug]] in sessions, (2) inotify SSE replacing 1s poll (correcting wrong 'no new deps' guidance), (3) streaming thinking indicators kicked", "created_at": "2026-02-22T09:06:13.126570+00:00"}
+{"id": "b-b1c95bd8", "type": "gotcha", "text": "gotcha: told improve-web to skip inotify ('no new deps') but inotify-simple is already a core dep \u2014 corrected mid-session after human caught it", "created_at": "2026-02-22T09:06:17.503577+00:00"}
+{"id": "b-35a0d541", "type": "task", "text": "pending: streaming thinking indicators (partial JSONL parsing + SSE turn streaming) \u2014 improve-web tasked, not yet reported back", "status": "pending", "created_at": "2026-02-22T09:06:18.150521+00:00"}

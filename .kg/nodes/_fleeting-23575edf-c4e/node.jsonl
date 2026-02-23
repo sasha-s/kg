@@ -1,0 +1,4 @@
+{"v": 1, "slug": "_fleeting-23575edf-c4e", "title": "_fleeting-23575edf-c4e", "type": "concept", "created_at": "2026-02-22T09:13:24.479269+00:00"}
+{"id": "b-971bbe5f", "type": "note", "text": "intent: process web agent inbox \u2014 coordinate improve-web task completion and routing corrections", "created_at": "2026-02-22T09:13:24.479506+00:00"}
+{"id": "b-f62e305d", "type": "note", "text": "outcome: improve-web shipped 12 features total; corrected inotify instruction (it's already a dep); all tasks complete, improve-web standing by [[kg-web]] [[agent-delegation]]", "created_at": "2026-02-22T09:13:27.729104+00:00"}
+{"id": "b-d8110ef2", "type": "gotcha", "text": "gotcha: said 'skip inotify / no new deps' to improve-web but inotify-simple is already a core dep \u2014 check existing deps before giving dep-avoidance instructions [[kg-architecture]]", "created_at": "2026-02-22T09:13:31.503093+00:00"}

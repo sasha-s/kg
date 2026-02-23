@@ -37,7 +37,7 @@ def agent_cli() -> None:
     """Manage registered agents."""
 
 
-@agent_cli.command("create")
+@agent_cli.command("create", no_args_is_help=True)
 @click.argument("name")
 @click.option("--node", default="", help="Node that runs this agent (default: KG_NODE_NAME or 'local')")
 @click.option("--no-auto-start", "auto_start", is_flag=True, default=True, help="Don't start on launcher boot")
@@ -58,14 +58,13 @@ def agent_create(name: str, node: str, auto_start: bool, restart: str, wake_on_m
 
     node = node or os.environ.get("KG_NODE_NAME", "local")
 
-    # Ensure mux DB exists and register the agent
+    # Ensure mux DB exists and register the agent (with kg_root so messages work immediately)
     cfg._mux_user_dir.mkdir(parents=True, exist_ok=True)
     _init_db(cfg.mux_db_path)
-    conn = sqlite3.connect(str(cfg.mux_db_path))
-    conn.execute("INSERT OR IGNORE INTO agents(name, status) VALUES(?, 'idle')", (name,))
-    conn.commit()
-    conn.close()
-    click.echo(f"✓ Registered agent '{name}' in mux")
+    from kg.agents.mux import _upsert_agent
+    with sqlite3.connect(str(cfg.mux_db_path)) as conn:
+        _upsert_agent(conn, name, "idle", None, str(cfg.root))
+    click.echo(f"✓ Registered agent '{name}' in mux (kg_root={cfg.root})")
 
     # Write .kg/agents/<name>.toml
     toml_path = create_agent_def(
@@ -80,33 +79,35 @@ def agent_create(name: str, node: str, auto_start: bool, restart: str, wake_on_m
     if not kg_bin:
         raise click.ClickException("`kg` not found on PATH. Cannot create KG nodes.")
 
-    instructions_slug = f"agent-{name}-instructions"
+    mission_slug = f"agent-{name}-mission"
     memory_slug = f"agent-{name}"
 
     # Check if nodes already exist (avoid duplicate bullets)
     conn2 = sqlite3.connect(str(cfg.db_path)) if cfg.db_path.exists() else None
-    instructions_exists = False
+    mission_exists = False
     memory_exists = False
     if conn2:
-        instructions_exists = bool(conn2.execute(
-            "SELECT 1 FROM nodes WHERE slug = ?", (instructions_slug,)
+        mission_exists = bool(conn2.execute(
+            "SELECT 1 FROM nodes WHERE slug = ?", (mission_slug,)
+        ).fetchone()) or bool(conn2.execute(
+            "SELECT 1 FROM nodes WHERE slug = ?", (f"agent-{name}-instructions",)
         ).fetchone())
         memory_exists = bool(conn2.execute(
             "SELECT 1 FROM nodes WHERE slug = ?", (memory_slug,)
         ).fetchone())
         conn2.close()
 
-    if not instructions_exists:
+    if not mission_exists:
         subprocess.run(
-            [kg_bin, "add", instructions_slug,
-             f"No instructions set yet for agent '{name}'. "
+            [kg_bin, "add", mission_slug,
+             f"No mission set yet for agent '{name}'. "
              "Add bullets here to define this agent's mission and standing context. "
              "These are injected verbatim at every session start."],
             check=False, capture_output=True,
         )
-        click.echo(f"✓ Created node '{instructions_slug}'")
+        click.echo(f"✓ Created node '{mission_slug}'")
     else:
-        click.echo(f"  Node '{instructions_slug}' already exists")
+        click.echo(f"  Node '{mission_slug}' already exists")
 
     if not memory_exists:
         subprocess.run(
@@ -154,13 +155,15 @@ def agent_list() -> None:
     for a in agents:
         n = pending.get(a["name"], 0)
         pstr = f"  [{n} pending]" if n else ""
+        sid = (a["session_id"] or "") if "session_id" in a.keys() else ""
+        sid_str = f"  session={sid[:16]}" if sid else ""
         click.echo(
             f"  {a['name']:20} {a['status']:10} "
-            f"{(a['last_seen'] or '')[:19]}{pstr}"
+            f"{(a['last_seen'] or '')[:19]}{sid_str}{pstr}"
         )
 
 
-@agent_cli.command("delete")
+@agent_cli.command("delete", no_args_is_help=True)
 @click.argument("name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def agent_delete(name: str, yes: bool) -> None:
@@ -179,7 +182,8 @@ def agent_delete(name: str, yes: bool) -> None:
 
 @mux_cli.command("start")
 @click.option("--foreground", "-f", is_flag=True, help="Run in foreground (blocking)")
-def mux_start(foreground: bool) -> None:
+@click.option("--daemon", "-d", is_flag=True, help="Run in background (default)")
+def mux_start(foreground: bool, daemon: bool) -> None:  # noqa: ARG001
     """Start the mux server."""
     from kg.agents.mux import start_background, start_server
     cfg = _load_cfg()
@@ -236,7 +240,7 @@ def mux_status_cmd() -> None:
         click.echo("\nNo agents registered yet.")
 
 
-@mux_cli.command("send")
+@mux_cli.command("send", no_args_is_help=True)
 @click.argument("to_agent")
 @click.argument("body")
 @click.option("--from", "from_agent", default="", help="Sender name")
@@ -323,8 +327,9 @@ def launcher_cli() -> None:
 
 @launcher_cli.command("start")
 @click.option("--foreground", "-f", is_flag=True)
+@click.option("--daemon", "-d", is_flag=True, help="Run in background (default)")
 @click.option("--poll", default=0.0, show_default=True, help="Poll interval in seconds (0 = use KG_LAUNCHER_POLL env or default 30s)")
-def launcher_start(foreground: bool, poll: float) -> None:
+def launcher_start(foreground: bool, daemon: bool, poll: float) -> None:  # noqa: ARG001
     """Start the launcher for this node.
 
     Poll interval priority: --poll > KG_LAUNCHER_POLL env var > default 30s.
@@ -393,7 +398,7 @@ def launcher_agent_cli() -> None:
     """Control individual agent lifecycle."""
 
 
-@launcher_agent_cli.command("pause")
+@launcher_agent_cli.command("pause", no_args_is_help=True)
 @click.argument("name")
 def launcher_agent_pause(name: str) -> None:
     """Pause an agent (launcher terminates it and will not restart)."""
@@ -403,7 +408,7 @@ def launcher_agent_pause(name: str) -> None:
     click.echo(f"✓ Agent '{defn.name}' set to paused — launcher will terminate it")
 
 
-@launcher_agent_cli.command("resume")
+@launcher_agent_cli.command("resume", no_args_is_help=True)
 @click.argument("name")
 def launcher_agent_resume(name: str) -> None:
     """Resume a paused or draining agent (launcher will start it)."""
@@ -413,7 +418,7 @@ def launcher_agent_resume(name: str) -> None:
     click.echo(f"✓ Agent '{defn.name}' set to running — launcher will start it")
 
 
-@launcher_agent_cli.command("drain")
+@launcher_agent_cli.command("drain", no_args_is_help=True)
 @click.argument("name")
 def launcher_agent_drain(name: str) -> None:
     """Drain an agent (finish current session, then stop — no restart)."""
@@ -423,7 +428,7 @@ def launcher_agent_drain(name: str) -> None:
     click.echo(f"✓ Agent '{defn.name}' set to draining — will stop after current session")
 
 
-@launcher_agent_cli.command("migrate")
+@launcher_agent_cli.command("migrate", no_args_is_help=True)
 @click.argument("name")
 @click.option("--to", "target_node", required=True, help="Target node name")
 @click.option("--drain", "drain_first", is_flag=True, help="Drain before migrating (set status=draining, then update node)")
@@ -463,7 +468,7 @@ def launcher_agent_migrate(name: str, target_node: str, drain_first: bool) -> No
 # ─── kg run — convenience launcher ───────────────────────────────────────────
 
 
-@click.command("run")
+@click.command("run", no_args_is_help=True)
 @click.argument("name")
 @click.option("--unsafe", is_flag=True, help="Pass --dangerously-skip-permissions to claude")
 @click.option("--no-print", is_flag=True, help="Don't echo the launch command")
@@ -482,6 +487,7 @@ def agent_run_cmd(name: str, unsafe: bool, no_print: bool) -> None:
     cfg = _load_cfg()
     env = os.environ.copy()
     env["KG_AGENT_NAME"] = name
+    env.pop("CLAUDECODE", None)  # allow launch from inside another claude session
     cwd = str(cfg.root)
 
     # Load TOML for model/working_dir if available
