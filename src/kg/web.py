@@ -32,12 +32,87 @@ _URL_RE = re.compile(r"https?://\S+")
 _PATH_RE = re.compile(r"(?<![/\w])[a-zA-Z0-9_][a-zA-Z0-9_\-\.]*(?:/[a-zA-Z0-9_\-\.]+)+")
 # Sentence boundary: ". " before uppercase, "[", or "(" — used to add visual line breaks
 _SENT_RE = re.compile(r"\. (?=[A-Z\[\(])")
+# Matches _fleeting-* node slugs in tool output
+_FLEETING_RE = re.compile(r"(_fleeting-[a-z0-9_-]+)")
 
 
 def _break_sentences(text: str) -> str:
     """Insert newlines at sentence boundaries, skipping backtick code spans."""
     parts = re.split(r"(`[^`]*`)", text)
     return "".join(_SENT_RE.sub(".\n", p) if i % 2 == 0 else p for i, p in enumerate(parts))
+
+
+def _tool_summary(name: str, inp: dict) -> str:
+    """Return a brief summary string to show inline in a tool call header."""
+    if name in ("Read", "Write", "Edit"):
+        p = inp.get("file_path", "")
+        return ("…" + p[-55:]) if len(p) > 55 else p
+    if name == "Bash":
+        cmd = inp.get("command", "")
+        first = cmd.split("\n")[0]
+        return (first[:70] + "…") if len(first) > 70 else first
+    if name == "Glob":
+        return inp.get("pattern", "")[:60]
+    if name == "Grep":
+        pat = inp.get("pattern", "")[:40]
+        g = inp.get("glob", "")
+        return f"{pat} in {g}" if g else pat
+    if name == "Task":
+        st = inp.get("subagent_type", "")
+        desc = inp.get("description", "")
+        return (f"[{st}] {desc[:40]}" if desc else st)[:60]
+    if name == "WebFetch":
+        return inp.get("url", "")[:70]
+    if name == "WebSearch":
+        return inp.get("query", "")[:60]
+    if name == "TodoWrite":
+        todos = inp.get("todos", [])
+        if isinstance(todos, list):
+            n = len(todos)
+            pending = sum(1 for t in todos if isinstance(t, dict) and t.get("status") == "in_progress")
+            done = sum(1 for t in todos if isinstance(t, dict) and t.get("status") == "completed")
+            parts = [f"{n} item{'s' if n != 1 else ''}"]
+            if pending:
+                parts.append(f"{pending} active")
+            if done:
+                parts.append(f"{done} done")
+            return " · ".join(parts)
+        return ""
+    if name == "AskUserQuestion":
+        qs = inp.get("questions", [])
+        if isinstance(qs, list) and qs:
+            q0 = qs[0]
+            if isinstance(q0, dict):
+                return q0.get("question", "")[:60]
+    if name in ("NotebookEdit",):
+        return inp.get("notebook_path", "")[:55]
+    if "memory_add_bullet" in name:
+        return inp.get("node_slug", "")[:50]
+    if "memory_context" in name or "memory_search" in name:
+        return inp.get("query", "")[:50]
+    if "memory_show" in name:
+        return inp.get("slug", "")[:50]
+    if "send_message" in name:
+        return f"→ {inp.get('to_agent', '')} · {inp.get('body', '')[:30]}"
+    if "get_pending_messages" in name:
+        return "inbox"
+    return ""
+
+
+def _render_tool_result(text: str, slugs: set[str]) -> str:
+    """Escape tool result text and turn _fleeting-* node slugs into links."""
+    parts: list[str] = []
+    last = 0
+    for m in _FLEETING_RE.finditer(text):
+        slug = m.group(1)
+        parts.append(_html.escape(text[last:m.start()]))
+        if slug in slugs:
+            parts.append(f'<a href="/node/{slug}" style="color:var(--ac)">{_html.escape(slug)}</a>')
+        else:
+            parts.append(_html.escape(slug))
+        last = m.end()
+    parts.append(_html.escape(text[last:]))
+    return "".join(parts)
 
 
 def _get_path_slugs(cfg: KGConfig) -> dict[str, str]:
@@ -260,15 +335,22 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 .turn-assistant{padding:10px 14px;border-left:3px solid rgba(255,255,255,.12);border-radius:0 6px 6px 0}
 .turn-label{font-size:10px;color:var(--mt);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
 .turn-text{font-size:13px;white-space:pre-wrap;word-break:break-word}
-.tool-call{background:var(--sf);border:1px solid var(--bd);border-radius:6px;margin:6px 0;overflow:hidden}
-.tool-hdr{display:flex;align-items:center;gap:8px;padding:5px 10px;background:rgba(255,255,255,.04);font-size:11px;font-family:monospace;cursor:pointer}
-.tool-hdr:hover{background:rgba(255,255,255,.07)}
+.tool-call{background:var(--sf);border:1px solid var(--bd);border-radius:6px;margin:4px 0;overflow:hidden}
+.tool-hdr{display:flex;align-items:center;gap:6px;padding:5px 10px;background:rgba(255,255,255,.04);font-size:11px;font-family:monospace;cursor:pointer;user-select:none}
+.tool-hdr:hover{background:rgba(255,255,255,.09)}
+.arr{font-size:9px;flex-shrink:0;width:9px;display:inline-block;text-align:center}
 .tool-body{padding:10px;font-size:11px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;display:none}
 .tool-body.open{display:block}
-.tool-result{background:rgba(40,180,99,.06);border:1px solid rgba(40,180,99,.25);border-radius:6px;margin:4px 0 6px 12px;overflow:hidden}
-.tool-result-hdr{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:10px;font-family:monospace;cursor:pointer;color:rgba(40,180,99,.9)}
-.tool-result-hdr:hover{background:rgba(40,180,99,.06)}
-.tool-result-body{padding:8px 10px;font-size:11px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;display:none}
+.tool-group{border:1px solid var(--bd);border-radius:6px;margin:6px 0;overflow:hidden}
+.tool-group-hdr{padding:5px 10px;background:rgba(255,255,255,.04);font-size:11px;font-family:monospace;cursor:pointer;color:var(--mt);user-select:none;display:flex;align-items:center;gap:6px}
+.tool-group-hdr:hover{background:rgba(255,255,255,.09)}
+.tool-group-hdr .tg-count{color:var(--ac);font-weight:600}
+.tool-group-body{padding:4px;display:none}
+.tool-group-body.open{display:block}
+.tool-result{background:rgba(40,180,99,.04);border-top:1px solid rgba(40,180,99,.18);overflow:hidden}
+.tool-result-hdr{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;font-family:monospace;cursor:pointer;color:rgba(40,180,99,.85);user-select:none}
+.tool-result-hdr:hover{background:rgba(40,180,99,.10);color:rgba(40,180,99,1)}
+.tool-result-body{padding:8px 10px;font-size:11px;font-family:monospace;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;display:none;border-top:1px solid rgba(40,180,99,.12)}
 .tool-result-body.open{display:block}
 .thinking-block{background:rgba(255,200,0,.04);border:1px solid rgba(255,200,0,.18);border-radius:6px;margin:6px 0;overflow:hidden}
 .thinking-hdr{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:10px;font-family:monospace;cursor:pointer;color:rgba(255,200,0,.7)}
@@ -315,6 +397,10 @@ code{font-family:"SF Mono",Consolas,monospace;font-size:12px;background:rgba(255
 /* SSE live indicator */
 .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#34d399;margin-right:5px;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* Scroll-to-top button */
+.scroll-top{position:fixed;bottom:20px;right:20px;background:var(--sf);border:1px solid var(--bd);border-radius:50%;width:36px;height:36px;display:none;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:var(--mt);z-index:150;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.scroll-top:hover{border-color:var(--ac);color:var(--ac)}
+.scroll-top.visible{display:flex}
 /* Mobile responsive */
 @media(max-width:640px){
   nav{padding:8px 12px;gap:8px;flex-wrap:wrap}
@@ -430,6 +516,8 @@ _GLOBAL_JS = """
     document.documentElement.classList.toggle('light',light);
     var btn=document.getElementById('theme-btn');
     if(btn)btn.textContent=light?'☀':'🌙';
+    var chk=document.getElementById('theme-chk');
+    if(chk)chk.checked=light;
   }
   var savedTheme=localStorage.getItem('kg-theme');
   applyTheme(savedTheme==='light');
@@ -440,6 +528,38 @@ _GLOBAL_JS = """
       applyTheme(!isLight);
       localStorage.setItem('kg-theme',isLight?'dark':'light');
     });
+  }
+  var tchk=document.getElementById('theme-chk');
+  if(tchk){
+    tchk.addEventListener('change',function(){
+      applyTheme(this.checked);
+      localStorage.setItem('kg-theme',this.checked?'light':'dark');
+    });
+  }
+  // Generic expand/collapse toggle — used by tool-hdr, tool-result-hdr, tool-group-hdr, thinking-hdr
+  // Toggles .open on next sibling; toggles ▶/▼ on .arr span inside btn.
+  window._tog=function(btn){
+    var body=btn.nextElementSibling;
+    if(!body)return;
+    var open=body.classList.toggle('open');
+    var arr=btn.querySelector('.arr');
+    if(arr)arr.textContent=open?'▼':'▶';
+  };
+  // Keyboard shortcut: / to focus search (like GitHub/GitLab)
+  document.addEventListener('keydown',function(e){
+    if(e.key==='/'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='TEXTAREA'&&!e.target.isContentEditable){
+      e.preventDefault();
+      var inp=document.querySelector('nav input[type=search]');
+      if(inp){inp.focus();inp.select();}
+    }
+  });
+  // Scroll-to-top button
+  var stBtn=document.getElementById('scroll-top-btn');
+  if(stBtn){
+    window.addEventListener('scroll',function(){
+      stBtn.classList.toggle('visible',window.scrollY>400);
+    });
+    stBtn.addEventListener('click',function(){window.scrollTo({top:0,behavior:'smooth'});});
   }
 })();
 """
@@ -455,6 +575,12 @@ def _page(cfg: KGConfig, title: str, body: str, q: str = "", extra_head: str = "
         '<div class="settings-row"><span class="settings-lbl">Font size</span>'
         '<input id="font-size-input" type="range" min="11" max="36" step="1" value="14">'
         '<span id="font-size-val" style="font-size:11px;color:var(--mt);min-width:26px">14px</span>'
+        '</div>'
+        '<div class="settings-row">'
+        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--mt)">'
+        '<input type="checkbox" id="theme-chk" style="accent-color:var(--ac);width:15px;height:15px;cursor:pointer">'
+        'Light mode'
+        '</label>'
         '</div>'
         '</div>'
     )
@@ -475,6 +601,7 @@ def _page(cfg: KGConfig, title: str, body: str, q: str = "", extra_head: str = "
         f'</nav>'
         f'{settings_panel}'
         f'<main>{body}</main>'
+        f'<button id="scroll-top-btn" class="scroll-top" title="Back to top" aria-label="Scroll to top">↑</button>'
         f'{script_tag}'
         f'<script>{_GLOBAL_JS}</script>'
         f'</body></html>'
@@ -758,24 +885,36 @@ def _render_doc_page(cfg: KGConfig, doc: dict, show_chunks: bool) -> str:
 def _agent_link_for_node(cfg: KGConfig, slug: str, node_type: str) -> str:
     """Return an HTML link to the agent page if this node is agent-related, else ''."""
     import contextlib
+
+    def _agent_link(name: str, label: str = "") -> str:
+        lbl = label or f"→ agent page ({_html.escape(name)})"
+        return f'<a href="/agent/{_html.escape(name)}" style="font-size:12px;color:var(--ac);margin-left:10px">{lbl}</a>'
+
+    def _toml_exists(name: str) -> bool:
+        with contextlib.suppress(Exception):
+            return (cfg.root / ".kg" / "agents" / f"{name}.toml").exists()
+        return False
+
     # Direct: agent-type nodes link to /agent/<slug>
     if node_type == "agent":
-        return (
-            f'<a href="/agent/{_html.escape(slug)}" '
-            f'style="font-size:12px;color:var(--ac);margin-left:10px">→ agent page</a>'
-        )
-    # Pattern: <name>-mission, <name>-instructions (legacy), or <name>-knowledge → try /agent/<name>
+        return _agent_link(slug, "→ agent page")
+    # Pattern: agent-<name>-mission, agent-<name>-instructions, agent-<name>-knowledge
+    # TOML name is <name> (without agent- prefix), so strip both suffixes.
     for suffix in ("-mission", "-instructions", "-knowledge"):
         if slug.endswith(suffix):
-            base = slug[: -len(suffix)]
-            # Verify the agent TOML exists
-            agent_toml = cfg.root / ".kg" / "agents" / f"{base}.toml"
-            with contextlib.suppress(Exception):
-                if agent_toml.exists():
-                    return (
-                        f'<a href="/agent/{_html.escape(base)}" '
-                        f'style="font-size:12px;color:var(--ac);margin-left:10px">→ agent page ({_html.escape(base)})</a>'
-                    )
+            base = slug[: -len(suffix)]  # e.g. "agent-improve-web"
+            if _toml_exists(base):
+                return _agent_link(base)
+            # Try stripping "agent-" prefix too (e.g. TOML is "improve-web.toml")
+            if base.startswith("agent-"):
+                short = base[len("agent-"):]
+                if short and _toml_exists(short):
+                    return _agent_link(short)
+    # Pattern: agent-<name> (memory/working node) — TOML is <name>.toml
+    if slug.startswith("agent-"):
+        base = slug[len("agent-"):]
+        if base and _toml_exists(base):
+            return _agent_link(base)
     return ""
 
 
@@ -1628,6 +1767,7 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'es.addEventListener("thinking",function(){{'
         f'sseOk=true;'
         f'var feed=document.getElementById("live-feed");if(feed)feed.style.display="";'
+        f'var ph=document.getElementById("live-placeholder");if(ph)ph.remove();'
         f'var dot=document.getElementById("thinking-dot");if(dot)dot.style.display="inline-block";'
         f'clearTimeout(thinkTid);'
         f'thinkTid=setTimeout(function(){{'
@@ -1641,6 +1781,7 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'var feed=document.getElementById("live-feed");'
         f'if(turns&&data.html){{'
         f'if(feed)feed.style.display="";'
+        f'var ph=document.getElementById("live-placeholder");if(ph)ph.remove();'
         f'var tmp=document.createElement("div");tmp.innerHTML=data.html;'
         f'turns.insertBefore(tmp.firstChild,turns.firstChild);'
         f'}}'
@@ -1656,17 +1797,18 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
         f'</script>'
     )
 
-    # Sessions list with preview
+    # Sessions list with preview — show 5 most recent, collapse the rest
     sessions_html = ""
     if sessions:
-        rows_html = ""
-        for sid, mtime, preview in sessions:
+        _SESS_SHOW = 5
+
+        def _session_row(sid: str, mtime: str, preview: str) -> str:
             preview_html = (
                 f'<span style="color:var(--mt);font-size:11px;overflow:hidden;'
                 f'text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">'
                 f'{_html.escape(preview)}{"…" if len(preview) == 100 else ""}</span>'
             ) if preview else ""
-            rows_html += (
+            return (
                 f'<div class="session-row" style="flex-wrap:nowrap;gap:8px">'
                 f'<a href="/agent/{agent_name_e}/session/{_html.escape(sid)}" style="flex-shrink:0">'
                 f'<code style="font-size:11px">{_html.escape(sid[:24])}</code></a>'
@@ -1674,6 +1816,25 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
                 f'<span style="color:var(--mt);font-size:12px;flex-shrink:0">{mtime}</span>'
                 f'</div>'
             )
+
+        recent = sessions[:_SESS_SHOW]
+        older = sessions[_SESS_SHOW:]
+        rows_html = "".join(_session_row(s, m, p) for s, m, p in recent)
+        older_html = ""
+        if older:
+            older_rows = "".join(_session_row(s, m, p) for s, m, p in older)
+            n_older = len(older)
+            older_html = (
+                f'<div id="sess-older" style="display:none">{older_rows}</div>'
+                f'<p style="margin-top:6px;font-size:12px">'
+                f'<a href="#" id="sess-older-toggle" style="color:var(--mt)" '
+                f'onclick="var o=document.getElementById(\'sess-older\'),'
+                f't=document.getElementById(\'sess-older-toggle\');'
+                f'o.style.display=o.style.display===\'none\'?\'block\':\'none\';'
+                f't.textContent=o.style.display===\'none\'?\'Show {n_older} older sessions\':\'Hide older sessions\';'
+                f'return false">Show {n_older} older sessions</a></p>'
+            )
+
         # Check for live session — get session_id from mux DB
         import contextlib as _ctxlib2
         import sqlite3 as _sq2
@@ -1697,7 +1858,11 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
                 f'<span style="color:var(--ac);font-size:11px;flex-shrink:0">live</span>'
                 f'</div>'
             )
-        sessions_html = f'<h2>Sessions</h2><div class="session-list">{live_link}{rows_html}</div>'
+        sessions_html = (
+            f'<h2>Sessions</h2>'
+            f'<div class="session-list">{live_link}{rows_html}</div>'
+            f'{older_html}'
+        )
 
     # Idle banner — shown when no session is running
     idle_banner = ""
@@ -1730,11 +1895,25 @@ def _render_agent_page(cfg: KGConfig, agent_name: str, flash: str = "") -> str:
             '</div>'
         )
 
-    # Live session feed — populated by SSE 'turn' events (always hidden until activity)
+    # Live session feed — populated by SSE 'turn' events
+    # When agent is running: hidden until first activity (SSE removes placeholder + shows feed)
+    # When agent is idle: always visible with placeholder text
+    _lf_placeholder_text = (
+        "Activity appears here when a session is running."
+        if rt != "running"
+        else "Waiting for activity\u2026"
+    )
+    _lf_placeholder = (
+        f'<p id="live-placeholder" style="color:var(--mt);font-size:13px;padding:8px 2px">'
+        f'{_lf_placeholder_text}</p>'
+    )
+    _lf_display = "display:none;" if rt == "running" else ""
     live_feed = (
-        f'<div id="live-feed" style="display:none;margin-bottom:16px">'
+        f'<div id="live-feed" style="{_lf_display}margin-bottom:16px">'
         f'<h2>Live session <span class="live-dot" id="thinking-dot"></span></h2>'
-        f'<div id="live-turns" class="bullets" style="max-height:320px;overflow-y:auto"></div>'
+        f'<div id="live-turns" class="bullets" style="max-height:320px;overflow-y:auto">'
+        f'{_lf_placeholder}'
+        f'</div>'
         f'</div>'
     )
 
@@ -1858,11 +2037,113 @@ def _render_session_page(cfg: KGConfig, agent_name: str, session_id: str) -> str
 
     slugs = _get_slugs_db(cfg)
     turns = _parse_session(session_path)
+
+    def _render_tool_call_html(tc: dict) -> str:
+        tc_name = tc["name"]
+        try:
+            inp_parsed = json.loads(tc["input"])
+        except Exception:
+            inp_parsed = {}
+        summary = _tool_summary(tc_name, inp_parsed)
+        if summary and summary.startswith("_fleeting-") and summary in slugs:
+            summary_html = (
+                f' <a href="/node/{summary}" style="color:var(--ac);font-weight:normal;text-decoration:none">'
+                f'{_html.escape(summary)}</a>'
+            )
+        elif summary:
+            summary_html = f' <span style="color:var(--mt);font-weight:normal">{_html.escape(summary)}</span>'
+        else:
+            summary_html = ""
+        inp_esc = _html.escape(tc["input"][:2000])
+        # Result HTML — placed INSIDE .tool-call so it's always visible (not hidden with input)
+        result_html = ""
+        if "result" in tc:
+            res_raw = tc["result"][:3000]
+            res_html = _render_tool_result(res_raw, slugs)
+            res_stripped = res_raw.strip()
+            if "\n" not in res_stripped and len(res_stripped) <= 120:
+                # Short single-line: always visible inline
+                result_html = (
+                    f'<div style="padding:2px 10px 5px 10px;font-size:11px;'
+                    f'color:rgba(40,180,99,.85);font-family:monospace;border-top:1px solid rgba(40,180,99,.12)">'
+                    f'↳ {res_html}</div>'
+                )
+            else:
+                # Long result: collapsible with ▶/▼ indicator
+                result_html = (
+                    f'<div class="tool-result">'
+                    f'<div class="tool-result-hdr" onclick="_tog(this)">'
+                    f'<span class="arr">▶</span> result <span style="color:var(--mt)">({len(res_raw)} chars)</span>'
+                    f'</div>'
+                    f'<div class="tool-result-body">{res_html}</div>'
+                    f'</div>'
+                )
+        return (
+            f'<div class="tool-call">'
+            f'<div class="tool-hdr" onclick="_tog(this)">'
+            f'<span class="arr">▶</span> {_html.escape(tc_name)}{summary_html}</div>'
+            f'<div class="tool-body">{inp_esc}</div>'
+            f'{result_html}'
+            f'</div>'
+        )
+
+    def _render_assistant_turn_html(turn: dict) -> str:
+        thinking_html = ""
+        for th in turn.get("thinking", []):
+            th_esc = _html.escape(th[:4000])
+            thinking_html += (
+                f'<div class="thinking-block">'
+                f'<div class="thinking-hdr" onclick="_tog(this)">'
+                f'<span class="arr">▶</span> 💭 thinking ({len(th)} chars)</div>'
+                f'<div class="thinking-body">{th_esc}</div>'
+                f'</div>'
+            )
+        tool_html = "".join(_render_tool_call_html(tc) for tc in turn.get("tool_calls", []))
+        text_html = _render(turn["text"], slugs) if turn["text"] else ""
+        return (
+            f'<div class="turn turn-assistant">'
+            f'<div class="turn-label">Assistant · {(turn.get("ts") or "")[:19]}</div>'
+            f'{thinking_html}'
+            f'<div class="turn-text">{text_html}</div>'
+            f'{tool_html}'
+            f'</div>'
+        )
+
+    # Build items, grouping consecutive "tool-only" assistant turns
     items = ""
+    grp_html = ""       # Accumulated HTML for current tool group
+    grp_names: list[str] = []   # Tool names in current group
+
+    def _flush_grp() -> str:
+        nonlocal grp_html, grp_names
+        if not grp_html:
+            return ""
+        html = grp_html
+        names = grp_names
+        grp_html = ""
+        grp_names = []
+        n = len(names)
+        # Only wrap in a group when there are 2+ tool calls from separate turns
+        if n < 2:
+            return html
+        names_str = ", ".join(_html.escape(nm) for nm in names[:6])
+        if n > 6:
+            names_str += f" +{n - 6} more"
+        return (
+            f'<div class="tool-group">'
+            f'<div class="tool-group-hdr" onclick="_tog(this)">'
+            f'<span class="arr">▶</span> <span class="tg-count">{n} tool calls</span>'
+            f' — {names_str}</div>'
+            f'<div class="tool-group-body">{html}</div>'
+            f'</div>'
+        )
+
     for turn in turns:
         if turn["type"] == "summary":
+            items += _flush_grp()
             items += f'<div style="color:var(--mt);font-size:12px;font-style:italic;margin-bottom:8px">{_html.escape(turn["text"])}</div>'
         elif turn["type"] == "user":
+            items += _flush_grp()
             items += (
                 f'<div class="turn turn-user">'
                 f'<div class="turn-label">User · {(turn.get("ts") or "")[:19]}</div>'
@@ -1870,51 +2151,37 @@ def _render_session_page(cfg: KGConfig, agent_name: str, session_id: str) -> str
                 f'</div>'
             )
         elif turn["type"] == "assistant":
-            # Thinking blocks (collapsed by default)
-            thinking_html = ""
-            for th in turn.get("thinking", []):
-                th_esc = _html.escape(th[:4000])
-                thinking_html += (
-                    f'<div class="thinking-block">'
-                    f'<div class="thinking-hdr" onclick="this.nextElementSibling.classList.toggle(\'open\')">'
-                    f'💭 thinking ({len(th)} chars)</div>'
-                    f'<div class="thinking-body">{th_esc}</div>'
-                    f'</div>'
-                )
-            # Tool calls, each followed by its result if available
-            tool_html = ""
-            for tc in turn.get("tool_calls", []):
-                inp_esc = _html.escape(tc["input"][:2000])
-                result_html = ""
-                if "result" in tc:
-                    res_esc = _html.escape(tc["result"][:3000])
-                    result_html = (
-                        f'<div class="tool-result">'
-                        f'<div class="tool-result-hdr" onclick="this.nextElementSibling.classList.toggle(\'open\')">'
-                        f'↳ result</div>'
-                        f'<div class="tool-result-body">{res_esc}</div>'
-                        f'</div>'
-                    )
-                tool_html += (
-                    f'<div class="tool-call">'
-                    f'<div class="tool-hdr" onclick="this.nextElementSibling.classList.toggle(\'open\')">'
-                    f'▶ {_html.escape(tc["name"])}</div>'
-                    f'<div class="tool-body">{inp_esc}</div>'
-                    f'</div>'
-                    f'{result_html}'
-                )
-            text_html = _render(turn["text"], slugs) if turn["text"] else ""
-            items += (
-                f'<div class="turn turn-assistant">'
-                f'<div class="turn-label">Assistant · {(turn.get("ts") or "")[:19]}</div>'
-                f'{thinking_html}'
-                f'<div class="turn-text">{text_html}</div>'
-                f'{tool_html}'
-                f'</div>'
-            )
+            has_tools = bool(turn.get("tool_calls"))
+            has_text = bool(turn.get("text", "").strip())
+            has_thinking = bool(turn.get("thinking"))
+            is_tool_only = has_tools and not has_text and not has_thinking
+            if is_tool_only:
+                # Accumulate into group
+                grp_html += _render_assistant_turn_html(turn)
+                grp_names.extend(tc["name"] for tc in turn.get("tool_calls", []))
+            else:
+                items += _flush_grp()
+                items += _render_assistant_turn_html(turn)
+
+    items += _flush_grp()
 
     if not items:
         items = '<p style="color:var(--mt)">Empty session or unrecognised format.</p>'
+
+    # Session stats for header
+    _n_user = sum(1 for t in turns if t["type"] == "user")
+    _n_asst = sum(1 for t in turns if t["type"] == "assistant")
+    _n_tools = sum(len(t.get("tool_calls", [])) for t in turns if t["type"] == "assistant")
+    _stat_parts = []
+    if _n_user:
+        _stat_parts.append(f"{_n_user} user turn{'s' if _n_user != 1 else ''}")
+    if _n_asst:
+        _stat_parts.append(f"{_n_asst} assistant turn{'s' if _n_asst != 1 else ''}")
+    if _n_tools:
+        _stat_parts.append(f"{_n_tools} tool call{'s' if _n_tools != 1 else ''}")
+    _stats_html = (
+        f'<p class="meta">{" · ".join(_stat_parts)}</p>'
+    ) if _stat_parts else ""
 
     _ae = _html.escape(agent_name)
     _bc_style = "font-size:12px;color:var(--mt);text-decoration:none"
@@ -1937,6 +2204,7 @@ def _render_session_page(cfg: KGConfig, agent_name: str, session_id: str) -> str
     body = (
         f'<div style="margin-bottom:8px">{breadcrumb}</div>'
         f'<h1 style="margin-top:4px">Session <code style="font-size:0.8em">{_html.escape(session_id[:20])}</code></h1>'
+        f'{_stats_html}'
         f'<div style="margin-top:12px">{items}</div>'
     )
     return _page(cfg, f"Session — {agent_name}", body)
@@ -2370,14 +2638,47 @@ class _Handler(BaseHTTPRequestHandler):
                     update_agent_def(self.cfg, name, status=status_map[action])
             self._redirect(f"/agents")
 
-        # POST /agents/create — create a new agent TOML
+        # POST /agents/create — create a new agent TOML + KG nodes + mux registration
         elif path == "/agents/create":
             name = form.get("name", [""])[0].strip()
             model = form.get("model", [""])[0].strip()
             if name and re.match(r"^[a-z0-9_-]+$", name):
+                # 1. Write .kg/agents/<name>.toml (restart="on-failure" to avoid restart loops)
                 with contextlib.suppress(Exception):
                     from kg.agents.launcher import create_agent_def  # type: ignore[attr-defined]
-                    create_agent_def(self.cfg, name, node="local", model=model)
+                    create_agent_def(self.cfg, name, node="local", model=model, restart="on-failure")
+                # 2. Create KG nodes: agent-<name>-mission + agent-<name> working memory
+                with contextlib.suppress(Exception):
+                    from kg.reader import FileStore
+                    _store = FileStore(self.cfg.nodes_dir)
+                    _mission = f"agent-{name}-mission"
+                    _mem = f"agent-{name}"
+                    if not _store.get(_mission):
+                        _store.get_or_create(_mission, node_type="concept")
+                        _store.add_bullet(
+                            _mission,
+                            text=(
+                                f"No mission set yet for agent '{name}'. "
+                                "Add bullets here to define this agent's mission and standing context. "
+                                "These are injected verbatim at every session start."
+                            ),
+                        )
+                    if not _store.get(_mem):
+                        _store.get_or_create(_mem, node_type="agent")
+                        _store.add_bullet(
+                            _mem,
+                            text=(
+                                f"Working memory for agent '{name}'. "
+                                "Bullets accumulated here across sessions."
+                            ),
+                        )
+                # 3. Register in mux.db so pending-count queries work immediately
+                with contextlib.suppress(Exception):
+                    import sqlite3 as _sql3
+                    from kg.agents.mux import _init_db as _mux_init, _upsert_agent as _mux_upsert  # type: ignore[attr-defined]
+                    _mux_init(self.cfg.mux_db_path)
+                    with _sql3.connect(str(self.cfg.mux_db_path)) as _mconn:
+                        _mux_upsert(_mconn, name, "idle", None, str(self.cfg.root))
             self._redirect("/agents")
 
         else:

@@ -35,7 +35,19 @@
       "harmful": 0,
       "used": 0,
       "updated_at": "2026-02-22T11:27:41.500631+00:00"
+    },
+    "b-af1c857d": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-23T06:16:32.239531+00:00"
+    },
+    "b-2b996c6c": {
+      "useful": 1,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-23T06:16:32.241576+00:00"
     }
   },
-  "token_budget": 1637.0
+  "token_budget": 5812.0
 }
