@@ -13,7 +13,7 @@ name = "kg"
 # max_size_kb = 512
 [[sources]]
 name = "src"
-path = "/workspace/kg/kg"
+path = "/workspace"
 include = ["**/*.py", "**/*.md", "**/*.toml", "**/*.ts", "**/*.rs", "**/Dockerfile", "**/*.sh"]
 exclude = [
     ".kg/**",               # KG own files

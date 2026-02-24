@@ -1,11 +1,11 @@
 {
-  "token_budget": 3237.0,
+  "token_budget": 2113.0,
   "bullets": {
     "b-d92a3546": {
-      "useful": 1,
+      "useful": 2,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T05:39:46.931977+00:00"
+      "updated_at": "2026-02-24T20:38:19.894459+00:00"
     },
     "b-a777c0e2": {
       "useful": 7,
@@ -14,12 +14,30 @@
       "updated_at": "2026-02-22T07:30:58.027082+00:00"
     },
     "b-287d4740": {
-      "useful": 6,
+      "useful": 11,
       "harmful": 0,
       "used": 0,
-      "updated_at": "2026-02-22T07:30:58.026375+00:00"
+      "updated_at": "2026-02-24T20:47:02.691941+00:00"
+    },
+    "b-ec3533cf": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-24T20:47:02.693043+00:00"
+    },
+    "b-c98dd67d": {
+      "useful": 4,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-24T20:47:02.693795+00:00"
+    },
+    "b-19c5c6d8": {
+      "useful": 2,
+      "harmful": 0,
+      "used": 0,
+      "updated_at": "2026-02-24T20:47:02.694523+00:00"
     }
   },
   "last_bullet_checkpoint": 0,
-  "last_reviewed": "2026-02-22T09:43:37.815267+00:00"
+  "last_reviewed": "2026-02-24T20:43:16.236635+00:00"
 }

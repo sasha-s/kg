@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python -m kg.hooks.session_context"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.hooks.session_context"
           }
         ]
       },
@@ -13,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks user_prompt_submit"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.agents.hooks user_prompt_submit"
           }
         ]
       }
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python -m kg.hooks.stop"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.hooks.stop"
           }
         ]
       },
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks stop"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.agents.hooks stop"
           }
         ]
       }
@@ -41,21 +41,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks session_start"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.agents.hooks session_start"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks post_tool_use",
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.agents.hooks post_tool_use",
             "async": true
           }
-        ],
-        "matcher": ".*"
+        ]
       }
     ],
     "SessionEnd": [
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/kg/kg/.venv/bin/python3 -m kg.agents.hooks session_end"
+            "command": "/home/node/.local/share/uv/tools/kg/bin/python -m kg.agents.hooks session_end"
           }
         ]
       }

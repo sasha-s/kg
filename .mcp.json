@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "kg": {
+      "type": "stdio",
+      "command": "/home/node/.local/bin/kg",
+      "args": [
+        "serve",
+        "--root",
+        "/workspace"
+      ],
+      "env": {}
+    }
+  }
+}

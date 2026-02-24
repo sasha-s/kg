@@ -113,7 +113,7 @@ def build_context(
     fts_scores: dict[str, float] = {}
     for r in raw:
         slug = r["slug"]
-        if slug.startswith(_INTERNAL_PREFIX):
+        if slug is None or slug.startswith(_INTERNAL_PREFIX):
             continue
         if seen_slugs and slug in seen_slugs:
             continue
@@ -134,7 +134,7 @@ def build_context(
         with contextlib.suppress(Exception):
             from kg.vector_client import search_vector
             for slug, score in search_vector(query, cfg, k=limit * 3):
-                if not slug.startswith(_INTERNAL_PREFIX):
+                if slug is not None and not slug.startswith(_INTERNAL_PREFIX):
                     vec_scores[slug] = float(score)
 
     # Load nodes to get vote scores + fill vector-only hits

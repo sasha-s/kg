@@ -239,8 +239,13 @@ def index_file(
     source_name: str,
     db_path: Path,
     max_size_kb: int = 512,
+    conn: sqlite3.Connection | None = None,
 ) -> str | None:
-    """Index a single file into SQLite. Returns slug or None if skipped."""
+    """Index a single file into SQLite. Returns slug or None if skipped.
+
+    If *conn* is provided it is reused (caller owns lifecycle).
+    Otherwise a fresh connection is opened and closed per call.
+    """
     if not path.exists() or not path.is_file():
         return None
     if path.stat().st_size > max_size_kb * 1024:
@@ -257,10 +262,12 @@ def index_file(
     slug = _path_slug(rel_path)
     now = datetime.now(UTC).isoformat()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    ensure_file_schema(conn)
+    own_conn = conn is None
+    if own_conn:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        ensure_file_schema(conn)
 
     with conn:
         # Check if unchanged
@@ -268,6 +275,8 @@ def index_file(
             "SELECT content_hash FROM file_sources WHERE path = ?", (str(path),)
         ).fetchone()
         if row and row[0] == content_hash:
+            if own_conn:
+                conn.close()
             return slug  # unchanged
 
         # Wipe old data
@@ -300,25 +309,30 @@ def index_file(
             (str(path), rel_path, content_hash, slug, source_name, now),
         )
 
-    conn.close()
+    if own_conn:
+        conn.close()
     return slug
 
 
-def delete_file_index(path: Path, db_path: Path) -> bool:
+def delete_file_index(path: Path, db_path: Path, *, conn: sqlite3.Connection | None = None) -> bool:
     """Remove a file's index entries. Returns True if anything was deleted."""
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA foreign_keys=ON")
+    own_conn = conn is None
+    if own_conn:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys=ON")
     with conn:
         row = conn.execute(
             "SELECT slug FROM file_sources WHERE path = ?", (str(path),)
         ).fetchone()
         if not row:
-            conn.close()
+            if own_conn:
+                conn.close()
             return False
         slug = row[0]
         conn.execute("DELETE FROM nodes WHERE slug = ?", (slug,))
         conn.execute("DELETE FROM file_sources WHERE path = ?", (str(path),))
-    conn.close()
+    if own_conn:
+        conn.close()
     return True
 
 
@@ -332,7 +346,11 @@ def index_source(
     db_path: Path,
     verbose: bool = False,
 ) -> dict[str, int]:
-    """Index all files in a source. Returns stats: new, updated, unchanged, skipped, deleted."""
+    """Index all files in a source. Returns stats: new, updated, unchanged, skipped, deleted.
+
+    Uses a single shared DB connection for the entire batch to avoid
+    the overhead of opening/closing ~2N connections for N files.
+    """
     files = collect_files(source)
     source_path = source.abs_path
     stats = {"new": 0, "updated": 0, "unchanged": 0, "skipped": 0, "deleted": 0}
@@ -342,71 +360,72 @@ def index_source(
 
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     ensure_file_schema(conn)
 
-    # Detect deleted files
-    current_abs = {str(p) for p in files}
-    source_prefix = str(source_path.resolve()).rstrip("/") + "/"
-    orphans = conn.execute(
-        "SELECT path, slug FROM file_sources WHERE path LIKE ?",
-        (source_prefix + "%",),
-    ).fetchall()
-    conn.close()
+    try:
+        # Detect deleted files
+        current_abs = {str(p) for p in files}
+        source_prefix = str(source_path.resolve()).rstrip("/") + "/"
+        orphans = conn.execute(
+            "SELECT path, slug FROM file_sources WHERE path LIKE ?",
+            (source_prefix + "%",),
+        ).fetchall()
 
-    for orphan_path, _orphan_slug in orphans:
-        if orphan_path not in current_abs:
-            delete_file_index(Path(orphan_path), db_path)
-            stats["deleted"] += 1
-            if verbose:
-                print(f"  deleted: {orphan_path}")
+        for orphan_path, _orphan_slug in orphans:
+            if orphan_path not in current_abs:
+                delete_file_index(Path(orphan_path), db_path, conn=conn)
+                stats["deleted"] += 1
+                if verbose:
+                    print(f"  deleted: {orphan_path}")
 
-    # Index current files
-    for p in files:
-        try:
-            rel = str(p.relative_to(source_path))
-        except ValueError:
-            rel = p.name
+        # Index current files using the shared connection
+        for p in files:
+            try:
+                rel = str(p.relative_to(source_path))
+            except ValueError:
+                rel = p.name
 
-        # Check if already in DB with same hash (pre-check without locking)
-        conn2 = sqlite3.connect(str(db_path))
-        ensure_file_schema(conn2)
-        row = conn2.execute(
-            "SELECT content_hash FROM file_sources WHERE path = ?", (str(p),)
-        ).fetchone()
-        conn2.close()
+            # Pre-check: skip unchanged files without full index_file overhead
+            row = conn.execute(
+                "SELECT content_hash FROM file_sources WHERE path = ?", (str(p),)
+            ).fetchone()
 
-        if p.stat().st_size > source.max_size_kb * 1024 or _is_binary(p):
-            stats["skipped"] += 1
-            continue
+            if p.stat().st_size > source.max_size_kb * 1024 or _is_binary(p):
+                stats["skipped"] += 1
+                continue
 
-        try:
-            text = p.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            stats["skipped"] += 1
-            continue
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                stats["skipped"] += 1
+                continue
 
-        new_hash = _content_hash(text)
-        if row and row[0] == new_hash:
-            stats["unchanged"] += 1
-            continue
+            new_hash = _content_hash(text)
+            if row and row[0] == new_hash:
+                stats["unchanged"] += 1
+                continue
 
-        was_new = row is None
-        result = index_file(
-            p,
-            rel_path=rel,
-            source_name=source.name,
-            db_path=db_path,
-            max_size_kb=source.max_size_kb,
-        )
-        if result:
-            if was_new:
-                stats["new"] += 1
+            was_new = row is None
+            result = index_file(
+                p,
+                rel_path=rel,
+                source_name=source.name,
+                db_path=db_path,
+                max_size_kb=source.max_size_kb,
+                conn=conn,
+            )
+            if result:
+                if was_new:
+                    stats["new"] += 1
+                else:
+                    stats["updated"] += 1
+                if verbose:
+                    action = "new" if was_new else "updated"
+                    print(f"  {action}: {rel}")
             else:
-                stats["updated"] += 1
-            if verbose:
-                action = "new" if was_new else "updated"
-                print(f"  {action}: {rel}")
-        else:
-            stats["skipped"] += 1
+                stats["skipped"] += 1
+    finally:
+        conn.close()
 
     return stats
