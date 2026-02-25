@@ -291,8 +291,18 @@ def get_pending_messages() -> str:
 # ---------------------------------------------------------------------------
 
 
-def run_server(config_root: Path | None = None) -> None:
-    """Entry point for `kg serve`."""
+def run_server(config_root: Path | None = None, *, transport: str = "stdio", host: str = "127.0.0.1", port: int = 8787) -> None:
+    """Entry point for `kg serve`.
+
+    Args:
+        config_root: Override project root.
+        transport: "stdio" (default) or "http" for streamable-http.
+        host: Bind address for HTTP transport.
+        port: Port for HTTP transport.
+    """
     global _cfg_root  # noqa: PLW0603
     _cfg_root = config_root
-    mcp.run()
+    if transport == "http":
+        mcp.run(transport="http", host=host, port=port)
+    else:
+        mcp.run()

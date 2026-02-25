@@ -1610,10 +1610,14 @@ def reload() -> None:
 
 @cli.command()
 @click.option("--root", default=None, help="Override project root (default: auto-detect from cwd)")
-def serve(root: str | None) -> None:
-    """Start stdio MCP server (connect via Claude Code MCP config)."""
+@click.option("--http", "use_http", is_flag=True, help="Use HTTP transport instead of stdio")
+@click.option("--host", default="127.0.0.1", help="Bind address for HTTP transport")
+@click.option("--port", default=8787, type=int, help="Port for HTTP transport")
+def serve(root: str | None, use_http: bool, host: str, port: int) -> None:
+    """Start MCP server (stdio by default, --http for streamable-http)."""
     root_path = Path(root).resolve() if root else None
-    run_server(root_path)
+    transport = "http" if use_http else "stdio"
+    run_server(root_path, transport=transport, host=host, port=port)
 
 
 # ---------------------------------------------------------------------------
