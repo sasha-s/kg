@@ -90,7 +90,7 @@ def build_context(
     If update_budget=True (default), increments each served node's token_budget
     in meta.jsonl by the number of chars included in the output.
     """
-    char_budget = max_tokens * 4  # rough: 1 token ≈ 4 chars
+    char_budget = int(max_tokens * 3.5)  # 1 token ≈ 3.5 chars (conservative for technical text with IDs/slugs)
 
     # Load session transcript fingerprint for dedup and boost
     fp = None
@@ -180,9 +180,12 @@ def build_context(
     store = FileStore(nodes_dir)
     packed_nodes: list[ContextNode] = []
     total_chars = 0
+    explore_reserve = 200  # reserve chars for the trailing "↳ Explore:" line
+
+    effective_budget = char_budget - explore_reserve
 
     for slug in sorted_slugs:
-        if total_chars >= char_budget:
+        if total_chars >= effective_budget:
             break
 
         node = store.get(slug)
@@ -225,13 +228,13 @@ def build_context(
             review_hint=hint,
         )
 
-
         estimated = len(ctx_node.format_compact())
-        if total_chars + estimated > char_budget and packed_nodes:
+        # Trim bullets to fit budget — applies to first node too
+        if total_chars + estimated > effective_budget:
             half = bullets[: max(1, len(bullets) // 2)]
             ctx_node.bullets = half
             estimated = len(ctx_node.format_compact())
-            if total_chars + estimated > char_budget:
+            if total_chars + estimated > effective_budget:
                 continue
 
         packed_nodes.append(ctx_node)
