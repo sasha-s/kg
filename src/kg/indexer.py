@@ -161,12 +161,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             VALUES (new.rowid, new.text, new.node_slug, new.id);
         END;
         CREATE TRIGGER IF NOT EXISTS bullets_ad AFTER DELETE ON bullets BEGIN
-            INSERT INTO bullets_fts(bullets_fts, rowid, text, node_slug, bullet_id)
-            VALUES ('delete', old.rowid, old.text, old.node_slug, old.id);
+            DELETE FROM bullets_fts WHERE rowid = old.rowid;
         END;
         CREATE TRIGGER IF NOT EXISTS bullets_au AFTER UPDATE ON bullets BEGIN
-            INSERT INTO bullets_fts(bullets_fts, rowid, text, node_slug, bullet_id)
-            VALUES ('delete', old.rowid, old.text, old.node_slug, old.id);
+            DELETE FROM bullets_fts WHERE rowid = old.rowid;
             INSERT INTO bullets_fts(rowid, text, node_slug, bullet_id)
             VALUES (new.rowid, new.text, new.node_slug, new.id);
         END;
