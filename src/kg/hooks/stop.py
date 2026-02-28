@@ -325,10 +325,11 @@ def main() -> None:
         "--no-session-persistence",
     ]
 
-    # Env: strip CLAUDE* vars to avoid nested session conflicts, set guard flag
+    # Env: strip nesting marker and entrypoint to avoid nested session conflicts,
+    # but keep telemetry/feature vars so child sessions emit OTel data.
     env = os.environ.copy()
-    for key in [k for k in env if k.startswith("CLAUDE")]:
-        del env[key]
+    env.pop("CLAUDECODE", None)
+    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
     env[_KG_NO_STOP_HOOK] = "1"
     # Preserve KG_AGENT_NAME so the extraction subprocess knows which agent node to update
     if agent_name:
